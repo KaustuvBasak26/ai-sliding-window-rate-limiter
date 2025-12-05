@@ -30,11 +30,19 @@ uvicorn main:app --reload --port 8000
 
 The backend API will be available at **http://localhost:8000**.
 
+### API Documentation (Swagger)
+
+Once the backend is running, access the interactive API documentation at:
+
+- **Swagger UI**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
 ### Backend Features
 
 - Flask/FastAPI for REST API
 - Redis for sliding window rate limiting
 - Real-time request tracking and limiting
+- Swagger/OpenAPI documentation
 
 ## Troubleshooting
 
