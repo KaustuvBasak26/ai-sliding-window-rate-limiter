@@ -7,7 +7,34 @@
 
 ## Backend Implementation
 
-// ...existing backend implementation details...
+### Step 1: Set up Redis
+
+```bash
+docker run -d --name redis -p 6379:6379 redis
+```
+
+### Step 2: Install dependencies
+
+```bash
+cd backend
+python -m venv venv
+source .venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+### Step 3: Run the backend server
+
+```bash
+uvicorn main:app --reload --port 8000
+```
+
+The backend API will be available at **http://localhost:8000**.
+
+### Backend Features
+
+- Flask/FastAPI for REST API
+- Redis for sliding window rate limiting
+- Real-time request tracking and limiting
 
 ## Troubleshooting
 
