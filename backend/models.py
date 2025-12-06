@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class RateLimitRequest(BaseModel):
@@ -14,3 +15,4 @@ class RateLimitResponse(BaseModel):
     limit: int
     count: int
     windowSeconds: int
+    cause: Optional[str] = None

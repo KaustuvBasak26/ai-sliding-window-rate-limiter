@@ -59,6 +59,7 @@ def check_rate_limit(body: RateLimitRequest):
                 limit=p.limit,
                 count=count,
                 windowSeconds=p.window_seconds,
+                cause=p.name,
             )
 
     # If we reach here everything passed; respond with the "primary" user limit

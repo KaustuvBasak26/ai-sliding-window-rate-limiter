@@ -9,7 +9,7 @@ class EffectiveLimit:
     key: str
     window_seconds: int
     limit: int
-    label: str
+    name: str  # Human-readable name for the cause
 
 
 class PolicyResolver:
@@ -21,7 +21,7 @@ class PolicyResolver:
     """
 
     DEFAULT_USER_LIMIT = 100
-    DEFAULT_MODEL_GLOBAL_LIMIT = 1000
+    DEFAULT_MODEL_GLOBAL_LIMIT = 10000
     WINDOW_SECONDS = 3600
 
     def resolve(self, body: RateLimitRequest) -> List[EffectiveLimit]:
@@ -34,7 +34,7 @@ class PolicyResolver:
                 key=user_key,
                 window_seconds=self.WINDOW_SECONDS,
                 limit=self.DEFAULT_USER_LIMIT,
-                label="user_model",
+                name="User + Model Limit",
             )
         )
 
@@ -45,7 +45,7 @@ class PolicyResolver:
                 key=model_key,
                 window_seconds=self.WINDOW_SECONDS,
                 limit=self.DEFAULT_MODEL_GLOBAL_LIMIT,
-                label="model_global",
+                name="Global Model Limit",
             )
         )
 
@@ -56,10 +56,32 @@ class PolicyResolver:
                 EffectiveLimit(
                     key=tier_key,
                     window_seconds=self.WINDOW_SECONDS,
-                    limit=60,   # 60/hr for premium tier
-                    label="model_tier_premium",
+                    limit=1000,   # 1000/hr for premium tier
+                    name="Premium Tier Limit",
                 )
             )
+        if body.modelTier == "standard":
+            tier_key = f"rl:tier:premium:model:{body.modelId}"
+            limits.append(
+                EffectiveLimit(
+                    key=tier_key,
+                    window_seconds=self.WINDOW_SECONDS,
+                    limit=100,   # 100/hr for premium tier
+                    name="Standard Tier Limit",
+                )
+            )
+
+        if body.modelTier == "free":
+            tier_key = f"rl:tier:premium:model:{body.modelId}"
+            limits.append(
+                EffectiveLimit(
+                    key=tier_key,
+                    window_seconds=self.WINDOW_SECONDS,
+                    limit=10,   # 10/hr for premium tier
+                    name="Free Tier Limit",
+                )
+            )
+
 
         # You can add tenant/API-key-based keys here too.
 

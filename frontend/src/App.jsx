@@ -123,6 +123,11 @@ function App() {
             <strong>Count:</strong> {result.count} / {result.limit} in the last{" "}
             {result.windowSeconds / 60} minutes
           </p>
+          {result.cause && !result.allowed && (
+            <p style={{ color: "red", marginTop: "0.5rem" }}>
+              <strong>Cause:</strong> {result.cause}
+            </p>
+          )}
           <p>
             Try clicking multiple times quickly to see the limiter kick in.
           </p>
