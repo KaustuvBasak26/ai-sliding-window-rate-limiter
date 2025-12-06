@@ -369,3 +369,83 @@ Notes on precedence
 6. What to inspect in logs / debugs
   - Backend logs print policy evaluations (key, label, limit, count) — use them to confirm which Redis key hit the limit.
   - Use psql queries (see verification section) to check the exact policy rows and values if behavior appears inconsistent.
+
+## Testing
+
+### Unit & Integration Tests (pytest)
+
+The backend includes comprehensive unit and integration tests using pytest.
+
+#### Running tests
+
+```bash
+cd backend
+pytest
+```
+
+Run with coverage:
+
+```bash
+pytest --cov=. --cov-report=html
+```
+
+Run specific test file:
+
+```bash
+pytest tests/test_rate_limiter.py -v
+pytest tests/test_policy_resolver.py -v
+pytest tests/test_main_integration.py -v
+```
+
+#### Test structure
+
+- **tests/conftest.py** — Shared fixtures (mocked Redis, test client, sample data)
+- **tests/test_rate_limiter.py** — Unit tests for SlidingWindowRateLimiterTx (logic, error handling)
+- **tests/test_policy_resolver.py** — Unit tests for PolicyResolver (key generation, precedence)
+- **tests/test_main_integration.py** — Integration tests for FastAPI endpoints (allowed/blocked responses, multiple policies, primary selection)
+
+#### Test coverage
+
+- Rate limiter: allowed requests, blocked requests, Redis errors
+- Policy resolver: scope precedence, tenant/user/model/tier lookups, Redis key generation
+- Main API: valid/invalid requests, allowed/blocked responses, fulfilled policies list, primary policy selection by minimum capacity
+
+## Frontend Testing (React Testing Library)
+
+The frontend includes comprehensive unit and integration tests using Vitest and React Testing Library.
+
+#### Running tests
+
+```bash
+cd frontend
+npm install
+npm test
+```
+
+Run tests with UI:
+
+```bash
+npm run test:ui
+```
+
+Run with coverage:
+
+```bash
+npm run test:coverage
+```
+
+#### Test structure
+
+- **src/test/setup.js** — Global test configuration and mocks
+- **src/test/App.test.jsx** — Unit and integration tests for App component
+
+#### Test coverage
+
+- Form rendering: all input fields present with correct default values
+- Form interactions: user can update fields, submit form
+- API integration: correct endpoint called with correct payload
+- Allowed responses: success status, limit usage, fulfilled policies list
+- Blocked responses: blocked status, rejection cause display
+- Error handling: network errors, API errors, error clearing on new request
+- Multiple requests: results update correctly on sequential requests
+- Loading states: loading indicator shown/hidden appropriately
