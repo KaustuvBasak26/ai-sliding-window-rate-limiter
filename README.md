@@ -265,6 +265,8 @@ The frontend will be available at the URL printed by Vite (usually **http://loca
 - React for UI components
 - Hot module replacement for instant updates
 
+<img width="1512" height="910" alt="Screenshot 2025-12-06 at 7 47 14 PM" src="https://github.com/user-attachments/assets/70d6e972-5bb4-4f5f-909d-8bc2a9c74e40" />
+
 ## Policies included (seeded)
 
 The example migration seeds a set of policies to demonstrate precedence and collisions. These are present in `migrations/002_seed_demo_data.sql` and in the DB after seeding.
@@ -310,6 +312,12 @@ Notes on precedence
    - User ID: ent-user-1
    - Model ID: gpt-4o
    - Model Tier: Premium
+<img width="380" height="860" alt="Screenshot 2025-12-06 at 7 48 30 PM" src="https://github.com/user-attachments/assets/a7cfbf39-2c11-4bac-9b0b-219938a1eeaa" />
+
+<img width="379" height="845" alt="Screenshot 2025-12-06 at 7 49 32 PM" src="https://github.com/user-attachments/assets/ffa07980-3d41-48c6-a2d1-db22f208d7e5" />
+
+<img width="378" height="713" alt="Screenshot 2025-12-06 at 7 50 02 PM" src="https://github.com/user-attachments/assets/c48cb9ee-4675-44fd-881c-03984cf9d2a5" />
+
 
 3. Test scenarios and expected UI:
 
