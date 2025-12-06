@@ -1,5 +1,14 @@
-# Rate Limiter Demo - Backend Setup
+# Rate Limiter
 
+## Architecture
+- SRD (System Requirements Document): [docs/SRD.md](docs/SRD.md)
+- HLD (High-Level Design): [docs/HLD.md](docs/HLD.md)
+- LLD (Low-Level Design): [docs/LLD.md](docs/LLD.md)
+- ERD (Entity Relationship Diagram): [docs/ERD.png](docs/ERD.png)
+
+# Rate Limiter Setup
+
+## 1. Backend (FastAPI + Redis)
 ## Prerequisites
 
 - Python 3.8+
