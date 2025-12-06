@@ -83,7 +83,7 @@ RateLimitPolicy
 ## Prerequisites
 
 - Python 3.8+
-- Docker (for Redis)
+- Docker (for Redis and Postgres)
 
 ## Backend Implementation
 
@@ -93,7 +93,70 @@ RateLimitPolicy
 docker run -d --name redis -p 6379:6379 redis
 ```
 
-### Step 2: Install dependencies
+### Step 2: Postgres Setup & Database Seeding
+
+The rate limiter uses a Postgres database to store policies, tenants, users, API keys, models, and tiers.
+
+#### 2.1 Start Postgres in Docker
+
+```bash
+docker run -d \
+  --name rl-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_DB=rate_limiter \
+  -p 5432:5432 \
+  postgres:16
+```
+
+#### 2.2 Test connection
+
+```bash
+psql -h localhost -U postgres -d rate_limiter
+# Enter password: postgres
+```
+
+Once connected, type `\q` to exit.
+
+#### 2.3 Seed the database
+
+Create two migration files in a `migrations/` folder at the backend root:
+
+**migrations/001_create_types_and_tables.sql**
+
+**migrations/002_seed_demo_data.sql**
+
+Run both migrations:
+
+```bash
+psql -h localhost -U postgres -d rate_limiter -f migrations/001_create_types_and_tables.sql
+psql -h localhost -U postgres -d rate_limiter -f migrations/002_seed_demo_data.sql
+```
+
+#### 1.4 Verify seed data
+
+Connect to psql and run these queries:
+
+```bash
+psql -h localhost -U postgres -d rate_limiter
+```
+
+```sql
+SELECT name FROM tenant;
+SELECT external_id, tenant_id FROM user_account;
+SELECT name FROM model_tier;
+SELECT name, tier_id FROM model;
+SELECT scope, limit_value FROM rate_limit_policy;
+```
+
+You should see:
+- **Tenants**: `enterprise_co`, `free_co`
+- **Users**: `ent-user-1`, `ent-user-2`, `free-user-1`
+- **Tiers**: `premium`, `standard`, `free`
+- **Models**: `gpt-4o` (premium), `gpt-4o-mini` (standard), `tiny-model` (free)
+- **Policies**: GLOBAL=100, TENANT=500/50, API_KEY=20, MODEL_TIER=60/30/10, USER_MODEL=10
+
+### Step 2: Install backend dependencies
 
 ```bash
 cd backend
