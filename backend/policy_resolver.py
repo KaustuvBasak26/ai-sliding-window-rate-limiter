@@ -213,16 +213,4 @@ class PolicyResolver:
                 )
             )
 
-        # # If no policy found at all, you can choose a default:
-        # if not effective_limits:
-        #     # fallback: 100 req/hour global
-        #     effective_limits.append(
-        #         EffectiveLimit(
-        #             key="rl:global",
-        #             window_seconds=3600,
-        #             limit=100,
-        #             label="FALLBACK_GLOBAL",
-        #         )
-        #     )
-
         return effective_limits
