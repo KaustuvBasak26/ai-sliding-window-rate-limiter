@@ -156,6 +156,55 @@ You should see:
 - **Models**: `gpt-4o` (premium), `gpt-4o-mini` (standard), `tiny-model` (free)
 - **Policies**: GLOBAL=100, TENANT=500/50, API_KEY=20, MODEL_TIER=60/30/10, USER_MODEL=10
 
+## Viewing seeded data (quick psql checks)
+
+After running the migrations, connect to Postgres and run these short queries to inspect the seeded rows:
+
+```bash
+psql -h localhost -U postgres -d rate_limiter
+# then in psql:
+SELECT * FROM tenant;
+SELECT * FROM model_tier;
+SELECT * FROM model;
+SELECT external_id, tenant_id FROM user_account;
+SELECT scope, window_seconds, limit_value FROM rate_limit_policy;
+```
+
+Example of expected output (trimmed) — this matches the demo seed used above:
+
+```
+ rate_limiter=# SELECT * FROM tenant;
+  id |    name     |         created_at
+ ----+-------------+----------------------------
+   1 | enterprise_co | 2025-12-06 09:15:22.981628
+   2 | free_co       | 2025-12-06 09:15:22.981628
+
+ rate_limiter=# SELECT * FROM model_tier;
+  id |  name   |               description
+ ----+---------+------------------------------------
+   1 | premium | Expensive, high-capacity models like GPT-4
+   2 | standard| Mid-tier models
+   3 | free   | Cheaper/smaller models
+
+ rate_limiter=# SELECT * FROM model;
+ id |    name     | tier_id
+ ----+-------------+---------
+  1 | gpt-4o      |       1
+  2 | gpt-4o-mini |       2
+  3 | tiny-model  |       3
+
+ rate_limiter=# SELECT scope, window_seconds, limit_value FROM rate_limit_policy;
+   scope    | window_seconds | limit_value
+------------+----------------+-------------
+ GLOBAL     |           3600 |       1000000
+ TENANT     |           3600 |         500
+ API_KEY    |           3600 |          20
+ MODEL_TIER |           3600 |        1000
+ MODEL_TIER |           3600 |         100
+ MODEL_TIER |           3600 |          10
+ USER_MODEL |           3600 |          10
+```
+
 ### Step 2: Install backend dependencies
 
 ```bash
@@ -215,3 +264,88 @@ The frontend will be available at the URL printed by Vite (usually **http://loca
 - Vite for fast development and build
 - React for UI components
 - Hot module replacement for instant updates
+
+## Policies included (seeded)
+
+The example migration seeds a set of policies to demonstrate precedence and collisions. These are present in `migrations/002_seed_demo_data.sql` and in the DB after seeding.
+
+- GLOBAL
+  - scope: GLOBAL
+  - window: 3600s
+  - limit_value: 1_000_000 (demo-high default)
+  - Purpose: fallback global cap (effectively not restrictive in demo)
+
+- TENANT
+  - scope: TENANT
+  - example: enterprise_co → 500 / hour
+  - example: free_co → 50 / hour
+  - Purpose: tenant-wide quota; overrides generic global behavior for tenants.
+
+- API_KEY
+  - scope: API_KEY
+  - example: api key assigned to free_co → 20 / hour
+  - Purpose: per-client key limits (useful for throttling single API consumers).
+
+- MODEL_TIER
+  - scope: MODEL_TIER
+  - premium → 1000 / hour
+  - standard → 100 / hour
+  - free → 10 / hour
+  - Purpose: tier-based protection (e.g., premium models may be throttled to protect capacity).
+
+- USER_MODEL
+  - scope: USER_MODEL
+  - example: ent-user-2 + gpt-4o → 10 / hour (very strict for testing)
+  - Purpose: specific user+model overrides (most specific — highest precedence).
+
+Notes on precedence
+- The resolver orders policies by specificity (USER_MODEL > API_KEY > TENANT > MODEL > MODEL_TIER > GLOBAL).
+- All applicable policies are enforced: a request must satisfy every applicable policy key. If any applicable policy is violated the request is blocked and the most specific failing policy is shown as the primary cause.
+
+## How to test from the frontend (step-by-step)
+1. Start services (Redis + Postgres), seed the DB, and run backend & frontend as described above.
+
+2. Open the frontend (default: http://localhost:5173). Example default form values in the demo UI:
+   - Tenant ID: enterprise_co
+   - User ID: ent-user-1
+   - Model ID: gpt-4o
+   - Model Tier: Premium
+
+3. Test scenarios and expected UI:
+
+- Scenario A — Typical allowed request (enterprise_co, ent-user-1, gpt-4o, premium)
+  - Why: tenant (500/hr) and tier (1000/hr) and user default all permit this single request.
+  - Action: Click "Check Rate Limit" once.
+  - Expected frontend:
+    - Status: "✅ Request Allowed"
+    - Primary Limit Usage: shows count/limit (e.g., 1 / 500 if the tenant policy is primary) and a colored progress bar.
+    - Fulfilled policies list: shows entries for the matched policies (labels, counts, windows). Each entry lists label, count/limit and window minutes.
+
+- Scenario B — Hitting a stricter tier/user limit (ent-user-2 on gpt-4o)
+  - Why: ent-user-2 has a USER_MODEL policy set to 10/hr (very strict). If you send >10 requests within the hour you will hit that policy.
+  - Action: Rapidly click the "Check Rate Limit" button > 10 times (or send 11 quick requests).
+  - Expected frontend once exceeded:
+    - Status: "🚫 Request Blocked"
+    - Reason: e.g. "USER_MODEL exceeded: 11/10 in the last 3600 seconds (key=rl:user:...)" (or similar human label from resolver)
+    - The fulfilled list will not appear when blocked; instead the cause is shown in the reason box.
+
+- Scenario C — API key / free tenant limits (simulate free_co / free model)
+  - Set Tenant ID to `free_co`, choose a free model (tiny-model) or use the API key from the seed.
+  - Because free tier limits are low (10/hr or API_KEY 20/hr), a few rapid clicks will show the "Blocked" state.
+  - Expected frontend:
+    - Blocked message with cause referencing `MODEL_TIER` or `API_KEY` (whichever policy was first to fail).
+    - Fulfilled list absent.
+
+4. Inspect policy precedence and multiple failures
+  - If multiple policies are violated simultaneously, the UI will show the primary cause (most specific) and the backend cause string will append "also violated: ..." with the other violations summarized.
+  - Example UI cause: "USER_MODEL exceeded: 11/10 ...; also violated: MODEL_TIER (11/100)"
+
+5. API testing via curl (optional)
+  - Allowed example:
+    curl -X POST http://localhost:8000/rate-limit/check -H "Content-Type: application/json" \
+      -d '{"userId":"ent-user-1","modelId":"gpt-4o","tenantId":"enterprise_co","modelTier":"premium"}'
+  - Blocked example (after exceeding): same curl after you have sent enough requests to violate a policy; response JSON will contain allowed=false and a human-readable cause.
+
+6. What to inspect in logs / debugs
+  - Backend logs print policy evaluations (key, label, limit, count) — use them to confirm which Redis key hit the limit.
+  - Use psql queries (see verification section) to check the exact policy rows and values if behavior appears inconsistent.
