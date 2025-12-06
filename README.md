@@ -312,12 +312,24 @@ Notes on precedence
    - User ID: ent-user-1
    - Model ID: gpt-4o
    - Model Tier: Premium
-<img width="380" height="860" alt="Screenshot 2025-12-06 at 7 48 30 PM" src="https://github.com/user-attachments/assets/a7cfbf39-2c11-4bac-9b0b-219938a1eeaa" />
+   
+<img width="382" height="861" alt="Screenshot 2025-12-06 at 8 12 23 PM" src="https://github.com/user-attachments/assets/a7c5c206-5695-4b36-8fcb-545fb051d469" />
 
-<img width="379" height="845" alt="Screenshot 2025-12-06 at 7 49 32 PM" src="https://github.com/user-attachments/assets/ffa07980-3d41-48c6-a2d1-db22f208d7e5" />
+<img width="381" height="849" alt="Screenshot 2025-12-06 at 8 13 10 PM" src="https://github.com/user-attachments/assets/75bf60bf-34f8-48f6-a4db-f24258958e50" />
 
-<img width="378" height="713" alt="Screenshot 2025-12-06 at 7 50 02 PM" src="https://github.com/user-attachments/assets/c48cb9ee-4675-44fd-881c-03984cf9d2a5" />
+<img width="382" height="859" alt="Screenshot 2025-12-06 at 8 13 34 PM" src="https://github.com/user-attachments/assets/15af74a5-134a-4a5c-8cf7-a2cb1384fe2b" />
 
+<img width="385" height="715" alt="Screenshot 2025-12-06 at 8 13 52 PM" src="https://github.com/user-attachments/assets/d176d975-8964-48ea-bfbd-75cfd2880d4a" />
+
+<img width="380" height="849" alt="Screenshot 2025-12-06 at 8 14 16 PM" src="https://github.com/user-attachments/assets/29461e11-ecb8-4dad-ab33-1591d880bc36" />
+
+<img width="381" height="856" alt="Screenshot 2025-12-06 at 8 14 48 PM" src="https://github.com/user-attachments/assets/9ce6179d-6163-45e1-8b04-a85dd9fde0b7" />
+
+<img width="380" height="856" alt="Screenshot 2025-12-06 at 8 15 12 PM" src="https://github.com/user-attachments/assets/b67db562-619f-445e-b313-370c473debfc" />
+
+<img width="388" height="725" alt="Screenshot 2025-12-06 at 8 15 44 PM" src="https://github.com/user-attachments/assets/0aa8fc00-f4bc-4ad7-afec-73ff807ee340" />
+
+<img width="393" height="860" alt="Screenshot 2025-12-06 at 8 16 05 PM" src="https://github.com/user-attachments/assets/40fb4418-c876-4d50-9dbb-82833a3b6565" />
 
 3. Test scenarios and expected UI:
 
