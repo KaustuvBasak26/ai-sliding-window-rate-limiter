@@ -119,18 +119,42 @@ function App() {
           <h2 style={{ color: statusColor }}>
             {result.allowed ? "ALLOWED ✅" : "BLOCKED 🚫"}
           </h2>
+
           <p>
             <strong>Count:</strong> {result.count} / {result.limit} in the last{" "}
             {result.windowSeconds / 60} minutes
           </p>
+
+          {/* Rejection cause (if blocked) */}
           {result.cause && !result.allowed && (
             <p style={{ color: "red", marginTop: "0.5rem" }}>
               <strong>Cause:</strong> {result.cause}
             </p>
           )}
-          <p>
-            Try clicking multiple times quickly to see the limiter kick in.
-          </p>
+
+          {/* Fulfilled policies (if allowed) */}
+          {result.allowed &&
+            result.fulfilled &&
+            result.fulfilled.length > 0 && (
+              <div style={{ marginTop: "0.75rem" }}>
+                <strong>Fulfilled policies:</strong>
+                <ul style={{ marginTop: "0.5rem" }}>
+                  {result.fulfilled.map((f, idx) => (
+                    <li key={idx} style={{ marginBottom: "0.35rem" }}>
+                      <span style={{ fontWeight: 600 }}>{f.label}</span>
+                      {" — "}
+                      {f.count}/{f.limit} in last {f.windowSeconds / 60} min
+                      {" "}
+                      <span style={{ color: "#666", fontSize: "0.9em" }}>
+                        (key: {f.key})
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+          <p>Try clicking multiple times quickly to see the limiter kick in.</p>
         </div>
       )}
     </div>

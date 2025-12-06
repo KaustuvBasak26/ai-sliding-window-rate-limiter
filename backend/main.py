@@ -1,6 +1,8 @@
+# main.py
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import redis
+import os
 
 from models import RateLimitRequest, RateLimitResponse
 from rate_limiter import SlidingWindowRateLimiterTx
@@ -8,7 +10,6 @@ from policy_resolver import PolicyResolver
 
 app = FastAPI(title="AI Rate Limiter Demo")
 
-# CORS so React can call it
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://localhost:3000"],
@@ -17,10 +18,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Redis client (adjust host/port if Docker is different)
 redis_client = redis.Redis(host="localhost", port=6379, db=0)
 rate_limiter = SlidingWindowRateLimiterTx(redis_client)
-policy_resolver = PolicyResolver()
+
+# Postgres DSN – adjust as needed
+DB_DSN = os.getenv(
+    "RL_PG_DSN",
+    "dbname=rate_limiter user=postgres password=postgres host=localhost port=5432",
+)
+
+policy_resolver = PolicyResolver(DB_DSN)
 
 
 @app.get("/health")
@@ -30,46 +37,86 @@ def health():
 
 @app.post("/rate-limit/check", response_model=RateLimitResponse)
 def check_rate_limit(body: RateLimitRequest):
-    # Very basic validation
     if not body.userId or not body.modelId:
         raise HTTPException(status_code=400, detail="userId and modelId are required")
 
-    # Resolve all effective limits (user, model-global, tier, tenant, etc.)
-    policies = policy_resolver.resolve(body)
+    try:
+        policies = policy_resolver.resolve(body)
+    except Exception as e:
+        # In a real system you'd log this; for now, surface it
+        raise HTTPException(status_code=500, detail=f"Policy resolve error: {e}")
 
-    # We'll enforce *all* policies; if any fails, request is blocked
-    last_detail = None
+    # We'll evaluate all policies and collect results so we can return a clear cause
+    evaluated = []  # list of dicts: {policy, allowed, count}
     for p in policies:
         allowed, count = rate_limiter.check_and_consume(
             key=p.key,
             window_seconds=p.window_seconds,
             limit=p.limit,
         )
+        evaluated.append(
+            {
+                "policy": p,
+                "allowed": allowed,
+                "count": count,
+            }
+        )
 
-        last_detail = (p, count)
+    # Find any failing policies (ordered by resolver precedence)
+    failures = [e for e in evaluated if not e["allowed"]]
 
-        # fail-fast: if any limit hit, block
-        if not allowed:
-            if count == -1:
-                raise HTTPException(
-                    status_code=503, detail="rate limiter contention"
-                )
-            return RateLimitResponse(
-                allowed=False,
-                limit=p.limit,
-                count=count,
-                windowSeconds=p.window_seconds,
-                cause=p.name,
-            )
+    if failures:
+        # Pick the most specific failure (first in list since resolver orders by precedence)
+        f = failures[0]
+        p = f["policy"]
+        count = f["count"]
+        # build a human readable cause
+        cause = (
+            f"{p.label} exceeded: {count}/{p.limit} in the last {p.window_seconds} seconds "
+            f"(key={p.key})"
+        )
 
-    # If we reach here everything passed; respond with the "primary" user limit
-    if last_detail is None:
+        # If multiple failures, mention there are additional violations
+        if len(failures) > 1:
+            other = []
+            for o in failures[1:]:
+                op = o["policy"]
+                other.append(f"{op.label} ({o['count']}/{op.limit})")
+            cause += "; also violated: " + ", ".join(other)
+
+        # Return the first failure details in the response
+        return RateLimitResponse(
+            allowed=False,
+            limit=p.limit,
+            count=count,
+            windowSeconds=p.window_seconds,
+            cause=cause,
+        )
+
+    # All policies passed; determine primary policy (most specific = first evaluated)
+    if not evaluated:
         raise HTTPException(status_code=500, detail="No policy resolved")
 
-    p, count = last_detail
+    primary = evaluated[0]["policy"]
+    primary_count = evaluated[0]["count"]
+
+    # return fulfilled policy details as well
+    fulfilled = [
+        {
+            "label": e["policy"].label,
+            "key": e["policy"].key,
+            "limit": e["policy"].limit,
+            "count": e["count"],
+            "windowSeconds": e["policy"].window_seconds,
+        }
+        for e in evaluated
+        if e["allowed"]
+    ]
+
     return RateLimitResponse(
         allowed=True,
-        limit=p.limit,
-        count=count,
-        windowSeconds=p.window_seconds,
+        limit=primary.limit,
+        count=primary_count,
+        windowSeconds=primary.window_seconds,
+        fulfilled=fulfilled,
     )
