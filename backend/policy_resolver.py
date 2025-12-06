@@ -14,6 +14,7 @@ class EffectiveLimit:
     window_seconds: int
     limit: int
     label: str
+    scope: str  # original policy scope (e.g. 'USER_MODEL', 'MODEL_TIER', ...)
 
 
 # Scope precedence (higher = more specific)
@@ -210,6 +211,7 @@ class PolicyResolver:
                     window_seconds=p["window_seconds"],
                     limit=p["limit_value"],
                     label=scope_label,
+                    scope=p["scope"],
                 )
             )
 

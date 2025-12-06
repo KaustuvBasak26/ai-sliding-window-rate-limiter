@@ -6,7 +6,7 @@ import os
 
 from models import RateLimitRequest, RateLimitResponse
 from rate_limiter import SlidingWindowRateLimiterTx
-from policy_resolver import PolicyResolver
+from policy_resolver import PolicyResolver, SCOPE_PRECEDENCE
 
 app = FastAPI(title="AI Rate Limiter Demo")
 
@@ -62,12 +62,17 @@ def check_rate_limit(body: RateLimitRequest):
             }
         )
 
-    # Find any failing policies (ordered by resolver precedence)
+    # Find any failing policies
     failures = [e for e in evaluated if not e["allowed"]]
 
     if failures:
-        # Pick the most specific failure (first in list since resolver orders by precedence)
-        f = failures[0]
+        # Pick the most specific failure using precedence map
+        failures_sorted = sorted(
+            failures,
+            key=lambda x: SCOPE_PRECEDENCE.get(x["policy"].scope, 0),
+            reverse=True,
+        )
+        f = failures_sorted[0]
         p = f["policy"]
         count = f["count"]
         # build a human readable cause
@@ -76,15 +81,13 @@ def check_rate_limit(body: RateLimitRequest):
             f"(key={p.key})"
         )
 
-        # If multiple failures, mention there are additional violations
-        if len(failures) > 1:
+        if len(failures_sorted) > 1:
             other = []
-            for o in failures[1:]:
+            for o in failures_sorted[1:]:
                 op = o["policy"]
                 other.append(f"{op.label} ({o['count']}/{op.limit})")
             cause += "; also violated: " + ", ".join(other)
 
-        # Return the first failure details in the response
         return RateLimitResponse(
             allowed=False,
             limit=p.limit,
@@ -93,12 +96,26 @@ def check_rate_limit(body: RateLimitRequest):
             cause=cause,
         )
 
-    # All policies passed; determine primary policy (most specific = first evaluated)
+    # All policies passed; determine primary policy by smallest remaining capacity (limit - count)
     if not evaluated:
         raise HTTPException(status_code=500, detail="No policy resolved")
 
-    primary = evaluated[0]["policy"]
-    primary_count = evaluated[0]["count"]
+    # consider only allowed entries (should be all here); compute left capacity and tie-break by scope precedence
+    allowed_entries = [e for e in evaluated if e["allowed"]]
+    if not allowed_entries:
+        raise HTTPException(status_code=500, detail="No allowed policies after evaluation")
+
+    def _sort_key(entry):
+        # left = remaining capacity
+        left = entry["policy"].limit - entry["count"]
+        # tie-break: higher precedence (more specific) wins -> use negative so higher precedence sorts earlier
+        prec = SCOPE_PRECEDENCE.get(entry["policy"].scope, 0)
+        return (left, -prec)
+
+    allowed_entries.sort(key=_sort_key)
+    primary_entry = allowed_entries[0]
+    primary = primary_entry["policy"]
+    primary_count = primary_entry["count"]
 
     # return fulfilled policy details as well
     fulfilled = [
