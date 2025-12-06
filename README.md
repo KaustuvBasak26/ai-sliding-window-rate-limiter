@@ -10,6 +10,7 @@ The solution includes:
 •	A simple React UI to demonstrate its behavior
 
 <img width="468" height="205" alt="image" src="https://github.com/user-attachments/assets/c8342b02-4323-4b57-8ecb-62f4c38a3f5a" />
+
 - SRD (System Requirements Document): [SRD.pdf](SRD.pdf)
 
 ### 2.1 Architecture Overview
@@ -21,6 +22,7 @@ Purpose of rate limiter in AI serving
 •	Prioritizes internal / premium traffic (QoS tiers).
 
 <img width="468" height="403" alt="image" src="https://github.com/user-attachments/assets/d577ff94-43a5-4254-9927-e5eebea09d07" />
+
 - HLD (High-Level Design): [HLD.pdf](HLD.pdf)
 
 ### 3.1 Python Directory Structure
@@ -33,6 +35,7 @@ frontend/
   src/App.jsx
 
 <img width="468" height="149" alt="image" src="https://github.com/user-attachments/assets/293ae4dc-d003-4cc8-b3f0-835c47ea8ceb" />
+
 - LLD (Low-Level Design): [LLD.pdf](LLD.pdf)
 
 <img width="419" height="304" alt="image" src="https://github.com/user-attachments/assets/9d0dd46e-e08e-40c0-97ea-99df8ed9a7f4" />
@@ -71,6 +74,7 @@ RateLimitPolicy
 •	USER_MODEL rules
 
 <img width="468" height="657" alt="image" src="https://github.com/user-attachments/assets/cb5a856f-ae7f-42c8-ac32-a2e5d3a39356" />
+
 - ERD (Entity Relationship Diagram): [ERD.pdf](ERD.pdf)
 
 # Rate Limiter Setup
