@@ -370,7 +370,7 @@ Notes on precedence
   - Backend logs print policy evaluations (key, label, limit, count) — use them to confirm which Redis key hit the limit.
   - Use psql queries (see verification section) to check the exact policy rows and values if behavior appears inconsistent.
 
-## Testing
+## Automated Testing
 
 ### Unit & Integration Tests (pytest)
 
