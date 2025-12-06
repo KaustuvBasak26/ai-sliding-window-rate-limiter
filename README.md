@@ -409,3 +409,43 @@ pytest tests/test_main_integration.py -v
 - Rate limiter: allowed requests, blocked requests, Redis errors
 - Policy resolver: scope precedence, tenant/user/model/tier lookups, Redis key generation
 - Main API: valid/invalid requests, allowed/blocked responses, fulfilled policies list, primary policy selection by minimum capacity
+
+## Frontend Testing (React Testing Library)
+
+The frontend includes comprehensive unit and integration tests using Vitest and React Testing Library.
+
+#### Running tests
+
+```bash
+cd frontend
+npm install
+npm test
+```
+
+Run tests with UI:
+
+```bash
+npm run test:ui
+```
+
+Run with coverage:
+
+```bash
+npm run test:coverage
+```
+
+#### Test structure
+
+- **src/test/setup.js** — Global test configuration and mocks
+- **src/test/App.test.jsx** — Unit and integration tests for App component
+
+#### Test coverage
+
+- Form rendering: all input fields present with correct default values
+- Form interactions: user can update fields, submit form
+- API integration: correct endpoint called with correct payload
+- Allowed responses: success status, limit usage, fulfilled policies list
+- Blocked responses: blocked status, rejection cause display
+- Error handling: network errors, API errors, error clearing on new request
+- Multiple requests: results update correctly on sequential requests
+- Loading states: loading indicator shown/hidden appropriately

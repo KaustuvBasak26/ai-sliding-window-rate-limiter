@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 
 function App() {
   const [userId, setUserId] = useState("ent-user-1");
@@ -201,8 +201,9 @@ function App() {
           }}
         >
           <div style={formGroupStyle}>
-            <label style={labelStyle}>Tenant ID</label>
+            <label style={labelStyle} htmlFor="tenant-id">Tenant ID</label>
             <input
+              id="tenant-id"
               type="text"
               value={tenantId}
               onChange={(e) => setTenantId(e.target.value)}
@@ -214,8 +215,9 @@ function App() {
           </div>
 
           <div style={formGroupStyle}>
-            <label style={labelStyle}>User ID</label>
+            <label style={labelStyle} htmlFor="user-id">User ID</label>
             <input
+              id="user-id"
               type="text"
               value={userId}
               onChange={(e) => setUserId(e.target.value)}
@@ -227,8 +229,9 @@ function App() {
           </div>
 
           <div style={formGroupStyle}>
-            <label style={labelStyle}>Model ID</label>
+            <label style={labelStyle} htmlFor="model-id">Model ID</label>
             <input
+              id="model-id"
               type="text"
               value={modelId}
               onChange={(e) => setModelId(e.target.value)}
@@ -240,8 +243,9 @@ function App() {
           </div>
 
           <div style={formGroupStyle}>
-            <label style={labelStyle}>Model Tier</label>
+            <label style={labelStyle} htmlFor="model-tier">Model Tier</label>
             <select
+              id="model-tier"
               value={modelTier}
               onChange={(e) => setModelTier(e.target.value)}
               style={{
