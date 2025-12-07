@@ -26,12 +26,19 @@ Purpose of rate limiter in AI serving
 - HLD (High-Level Design): [HLD.pdf](HLD.pdf)
 
 ### 3.1 Python Directory Structure
+
 backend/
+
   main.py
+  
   rate_limiter.py
+  
   models.py
+  
   policy_resolver.py (optional)
+  
 frontend/
+
   src/App.jsx
 
 <img width="468" height="149" alt="image" src="https://github.com/user-attachments/assets/293ae4dc-d003-4cc8-b3f0-835c47ea8ceb" />
