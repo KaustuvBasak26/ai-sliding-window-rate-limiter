@@ -463,8 +463,8 @@ If you prefer creating services individually:
 | Runtime | Python 3 |
 | Instance Type | **Free** |
 | Root Directory | *(leave empty — repo root)* |
-| Build Command | `bash backend/render-build.sh` |
-| Start Command | `bash backend/start.sh` |
+| Build Command | `bash render-build.sh` |
+| Start Command | `bash start.sh` |
 | Health Check Path | `/health` |
 
 Environment variables:

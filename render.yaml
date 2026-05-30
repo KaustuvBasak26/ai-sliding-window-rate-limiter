@@ -1,7 +1,7 @@
 # Render Blueprint — free tier only (single web service, no Postgres/Redis)
 #
-# Repo root deploy: backend + frontend are built together on each push to `deploy`.
-# buildFilter limits autodeploy to app code (not docs/PDFs).
+# Deploy from repo root. Root start.sh / render-build.sh wrappers call backend/.
+# Works whether Render Root Directory is blank or still set to backend/.
 services:
   - type: web
     name: rate-limiter
@@ -9,14 +9,16 @@ services:
     plan: free
     branch: deploy
     autoDeployTrigger: commit
-    buildCommand: bash backend/render-build.sh
-    startCommand: bash backend/start.sh
+    buildCommand: bash render-build.sh
+    startCommand: bash start.sh
     healthCheckPath: /health
     buildFilter:
       paths:
         - backend/**
         - frontend/**
         - render.yaml
+        - start.sh
+        - render-build.sh
       ignoredPaths:
         - docs/**
         - "**/*.pdf"
