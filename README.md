@@ -494,19 +494,19 @@ Open the app URL and run the demo scenarios. The app is public by default.
 
 ### Custom domain (portfolio subdomain)
 
-To serve the demo at **`rate-limiter.kaustuvbasak.com`** (alongside `dns.kaustuvbasak.com` and `hvac.kaustuvbasak.com`):
+To serve the demo at **`ratelimiter.kaustuvbasak.com`** (alongside `dns.kaustuvbasak.com` and `hvac.kaustuvbasak.com`):
 
-1. `render.yaml` already lists `domains: [rate-limiter.kaustuvbasak.com]`. Push to `deploy` and **Sync Blueprint** on Render.
+1. `render.yaml` already lists `domains: [ratelimiter.kaustuvbasak.com]`. Push to `deploy` and **Sync Blueprint** on Render.
 2. In your DNS provider for `kaustuvbasak.com`, add a **CNAME**:
-   - **Name:** `rate-limiter`
+   - **Name:** `ratelimiter`
    - **Target:** your Render hostname (e.g. `rate-limiter-lzo7.onrender.com` — copy from Render Dashboard → Custom Domains)
 3. Wait for Render to verify DNS and provision TLS.
-4. Add a **Live Projects** card on [kaustuvbasak.com](https://kaustuvbasak.com/) linking to `https://rate-limiter.kaustuvbasak.com`.
+4. Add a **Live Projects** card on [kaustuvbasak.com](https://kaustuvbasak.com/) linking to `https://ratelimiter.kaustuvbasak.com`.
 
 Step-by-step copy, HTML snippet, and checklist: [docs/portfolio-subdomain.md](docs/portfolio-subdomain.md).
 
 ```bash
-curl https://rate-limiter.kaustuvbasak.com/health
+curl https://ratelimiter.kaustuvbasak.com/health
 ```
 
 ### Render free tier notes
@@ -523,7 +523,7 @@ curl https://rate-limiter.kaustuvbasak.com/health
 | Issue | Fix |
 |-------|-----|
 | UI changes not appearing after push | Ensure Render tracks the **`deploy`** branch; push to `deploy`, not only `main`. Sync the Blueprint after updating `render.yaml`. Frontend changes need `buildFilter.paths` (already in `render.yaml`). |
-| Custom domain not working | Add CNAME `rate-limiter` → your `*.onrender.com` host; sync Blueprint; see [docs/portfolio-subdomain.md](docs/portfolio-subdomain.md) |
+| Custom domain not working | Add CNAME `ratelimiter` → your `*.onrender.com` host; sync Blueprint; see [docs/portfolio-subdomain.md](docs/portfolio-subdomain.md) |
 | Redis connection error | Ensure Redis is running (`docker ps`) or `REDIS_URL` is set |
 | Postgres connection error | Check `DATABASE_URL` / `RL_PG_DSN`; on Render, SSL is enabled automatically |
 | `401 Authentication required` | Only if you set `APP_ACCESS_PASSWORD` — log in via the UI or unset it for a public demo |

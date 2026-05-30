@@ -19,7 +19,7 @@ services:
         - backend/**
         - frontend/**
     domains:
-      - rate-limiter.kaustuvbasak.com
+      - ratelimiter.kaustuvbasak.com
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.0"
