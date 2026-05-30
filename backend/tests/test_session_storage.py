@@ -103,3 +103,46 @@ class TestSessionStorageMode:
         blocked = session_client.post("/rate-limit/check", json=payload, headers=headers)
         assert blocked.status_code == 200
         assert blocked.json()["allowed"] is False
+
+    def test_different_request_contexts_have_isolated_counters(
+        self, session_client, monkeypatch
+    ):
+        monkeypatch.setenv("STORAGE_MODE", "session")
+        session_id = str(uuid.uuid4())
+        headers = {"X-Demo-Session": session_id}
+
+        free_payload = {
+            "userId": "free-user-1",
+            "modelId": "tiny-model",
+            "tenantId": "free_co",
+            "modelTier": "free",
+        }
+        for _ in range(10):
+            response = session_client.post(
+                "/rate-limit/check", json=free_payload, headers=headers
+            )
+            assert response.status_code == 200
+            assert response.json()["allowed"] is True
+
+        blocked = session_client.post(
+            "/rate-limit/check", json=free_payload, headers=headers
+        )
+        assert blocked.json()["allowed"] is False
+        assert blocked.json()["count"] == 10
+
+        changed_payload = {
+            "userId": "free-user-2",
+            "modelId": "tiny-model2",
+            "tenantId": "free_co2",
+            "modelTier": "free",
+        }
+        fresh = session_client.post(
+            "/rate-limit/check", json=changed_payload, headers=headers
+        )
+        assert fresh.status_code == 200
+        assert fresh.json()["allowed"] is True
+        assert fresh.json()["count"] == 1
+        assert fresh.json()["contextMatch"]["tenantMatched"] is False
+        assert fresh.json()["contextMatch"]["userMatched"] is False
+        assert fresh.json()["contextMatch"]["modelMatched"] is False
+        assert fresh.json()["contextMatch"]["tierMatched"] is True

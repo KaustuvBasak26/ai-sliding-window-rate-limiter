@@ -10,6 +10,20 @@ class RateLimitRequest(BaseModel):
     modelTier: str | None = None  # e.g. "premium", "standard", "free"
 
 
+class RequestContextMatch(BaseModel):
+    tenantMatched: bool
+    userMatched: bool
+    modelMatched: bool
+    tierMatched: bool
+
+
+class RequestSnapshot(BaseModel):
+    tenantId: str | None = None
+    userId: str
+    modelId: str
+    modelTier: str | None = None
+
+
 # New: per-policy result returned when request is accepted
 class PolicyResult(BaseModel):
     label: str
@@ -25,5 +39,8 @@ class RateLimitResponse(BaseModel):
     count: int
     windowSeconds: int
     cause: Optional[str] = None
+    primaryPolicy: Optional[str] = None
+    contextMatch: Optional[RequestContextMatch] = None
+    requestSnapshot: Optional[RequestSnapshot] = None
     # If accepted, include all policies that were successfully fulfilled
     fulfilled: Optional[List[PolicyResult]] = None

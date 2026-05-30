@@ -163,3 +163,15 @@ class SqlitePolicyResolver:
             )
 
         return effective_limits
+
+    def get_context_match(self, body: RateLimitRequest) -> dict:
+        tenant_id = self._get_tenant_id(body.tenantId)
+        user_id = self._get_user_id(tenant_id, body.userId)
+        model_id, _ = self._get_model_id_and_tier(body.modelId)
+        tier_id = self._get_model_tier_id_by_name(body.modelTier)
+        return {
+            "tenant_matched": tenant_id is not None,
+            "user_matched": user_id is not None,
+            "model_matched": model_id is not None,
+            "tier_matched": tier_id is not None if body.modelTier else False,
+        }

@@ -1,14 +1,52 @@
 from fastapi import HTTPException
 
-from models import RateLimitRequest, RateLimitResponse
+from models import (
+    RateLimitRequest,
+    RateLimitResponse,
+    RequestContextMatch,
+    RequestSnapshot,
+)
 from policy_resolver import SCOPE_PRECEDENCE
+from request_context import build_context_match, scope_limit_key
 from security import is_production, sanitize_cause, sanitize_fulfilled
+
+
+def _resolve_context_match(body: RateLimitRequest, resolver) -> RequestContextMatch | None:
+    if not hasattr(resolver, "get_context_match"):
+        return None
+    match = resolver.get_context_match(body)
+    return build_context_match(
+        tenant_matched=match["tenant_matched"],
+        user_matched=match["user_matched"],
+        model_matched=match["model_matched"],
+        tier_matched=match["tier_matched"],
+    )
+
+
+def _request_snapshot(body: RateLimitRequest) -> RequestSnapshot:
+    return RequestSnapshot(
+        tenantId=body.tenantId,
+        userId=body.userId,
+        modelId=body.modelId,
+        modelTier=body.modelTier,
+    )
+
+
+def _limiter_key(
+    policy_key: str,
+    body: RateLimitRequest,
+    scope_keys_by_request: bool,
+) -> str:
+    if scope_keys_by_request:
+        return scope_limit_key(policy_key, body)
+    return policy_key
 
 
 def evaluate_rate_limit(
     body: RateLimitRequest,
     resolver,
     limiter,
+    scope_keys_by_request: bool = False,
 ) -> RateLimitResponse:
     try:
         policies = resolver.resolve(body)
@@ -16,10 +54,13 @@ def evaluate_rate_limit(
         detail = "Policy resolve error" if is_production() else f"Policy resolve error: {exc}"
         raise HTTPException(status_code=500, detail=detail) from exc
 
+    context_match = _resolve_context_match(body, resolver)
+    snapshot = _request_snapshot(body)
+
     evaluated = []
     for policy in policies:
         allowed, count = limiter.check_and_consume(
-            key=policy.key,
+            key=_limiter_key(policy.key, body, scope_keys_by_request),
             window_seconds=policy.window_seconds,
             limit=policy.limit,
         )
@@ -58,6 +99,9 @@ def evaluate_rate_limit(
             count=count,
             windowSeconds=policy.window_seconds,
             cause=cause,
+            primaryPolicy=policy.label,
+            contextMatch=context_match,
+            requestSnapshot=snapshot,
         )
 
     if not evaluated:
@@ -95,5 +139,8 @@ def evaluate_rate_limit(
         limit=primary.limit,
         count=primary_count,
         windowSeconds=primary.window_seconds,
+        primaryPolicy=primary.label,
+        contextMatch=context_match,
+        requestSnapshot=snapshot,
         fulfilled=fulfilled,
     )

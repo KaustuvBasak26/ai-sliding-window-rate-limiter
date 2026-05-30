@@ -170,7 +170,12 @@ def check_rate_limit(
         raise HTTPException(status_code=400, detail="userId and modelId are required")
 
     resolver, limiter = _get_backend(request)
-    return evaluate_rate_limit(body, resolver, limiter)
+    return evaluate_rate_limit(
+        body,
+        resolver,
+        limiter,
+        scope_keys_by_request=use_session_storage(),
+    )
 
 
 static_dir = get_static_dir()

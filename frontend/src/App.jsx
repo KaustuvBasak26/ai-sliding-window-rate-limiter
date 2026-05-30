@@ -1,8 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
+import { getPreferredTheme, initTheme, setTheme } from "./theme.js";
 
 const API_BASE =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.PROD ? "" : "http://localhost:8000");
+
+const PORTFOLIO_URL = "https://kaustuvbasak.com/";
 
 const DEMO_PRESETS = {
   enterprise: {
@@ -42,7 +45,7 @@ function formatWindow(windowSeconds) {
 
 function progressColor(count, limit) {
   if (!limit || limit <= 0) {
-    return "var(--gray-400)";
+    return "var(--muted)";
   }
   const percentage = Math.min((count / limit) * 100, 100);
   if (percentage > 80) return "var(--danger)";
@@ -55,6 +58,84 @@ function usagePercent(count, limit) {
     return 0;
   }
   return Math.min((count / limit) * 100, 100);
+}
+
+function requestPayloadKey({ tenantId, userId, modelId, modelTier }) {
+  return JSON.stringify({ tenantId, userId, modelId, modelTier });
+}
+
+function snapshotKey(snapshot) {
+  if (!snapshot) {
+    return "";
+  }
+  return requestPayloadKey(snapshot);
+}
+
+function formatMatchLabel(label, matched) {
+  return `${label}: ${matched ? "matched" : "not in demo DB"}`;
+}
+
+function ThemeToggle({ theme, onChange }) {
+  return (
+    <div className="theme-toggle" role="group" aria-label="Color theme">
+      <button
+        type="button"
+        className={theme === "light" ? "active" : ""}
+        aria-pressed={theme === "light"}
+        onClick={() => onChange("light")}
+      >
+        Light
+      </button>
+      <button
+        type="button"
+        className={theme === "dark" ? "active" : ""}
+        aria-pressed={theme === "dark"}
+        onClick={() => onChange("dark")}
+      >
+        Dark
+      </button>
+    </div>
+  );
+}
+
+function AppHeader({ demoSessionId, theme, onThemeChange }) {
+  return (
+    <header className="header">
+      <div className="header-row">
+        <div>
+          <div className="header-brand">
+            <span className="header-kb">KB</span>
+            <h1>Sliding Window Rate Limiter</h1>
+          </div>
+          <p>
+            Interactive demo — check limits across tenant, user, model, and tier
+            policies. Reload the page to reset your session.
+          </p>
+          <a
+            href={PORTFOLIO_URL}
+            className="header-portfolio-link"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            ← Back to kaustuvbasak.com
+          </a>
+        </div>
+        <div className="header-actions">
+          <ThemeToggle theme={theme} onChange={onThemeChange} />
+          <div className="header-stats">
+            <div className="stat" title={demoSessionId}>
+              <span className="stat-label">Session</span>
+              <span className="stat-value">{demoSessionId.slice(0, 8)}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">Mode</span>
+              <span className="stat-value">Live</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+  );
 }
 
 function App() {
@@ -73,11 +154,27 @@ function App() {
   const [demoSessionId] = useState(createDemoSessionId);
   const [hasCheckedOnce, setHasCheckedOnce] = useState(false);
   const [showResultsIntro, setShowResultsIntro] = useState(false);
+  const [theme, setThemeState] = useState(getPreferredTheme);
+  const [lastSnapshotKey, setLastSnapshotKey] = useState("");
   const requestIdRef = useRef(0);
+
+  const currentSnapshotKey = requestPayloadKey({ tenantId, userId, modelId, modelTier });
+  const inputsChangedSinceCheck =
+    hasCheckedOnce && lastSnapshotKey && currentSnapshotKey !== lastSnapshotKey;
 
   const apiHeaders = {
     "Content-Type": "application/json",
     "X-Demo-Session": demoSessionId,
+  };
+
+  useEffect(() => {
+    initTheme();
+    setThemeState(getPreferredTheme());
+  }, []);
+
+  const handleThemeChange = (nextTheme) => {
+    setTheme(nextTheme);
+    setThemeState(nextTheme);
   };
 
   useEffect(() => {
@@ -176,6 +273,7 @@ function App() {
       }
       setResult(data);
       setHasCheckedOnce(true);
+      setLastSnapshotKey(snapshotKey(data.requestSnapshot) || currentSnapshotKey);
     } catch (e) {
       if (requestId !== requestIdRef.current) {
         return;
@@ -207,6 +305,21 @@ function App() {
 
     const percent = usagePercent(result.count, result.limit);
     const boundedCount = Math.min(result.count, result.limit);
+    const snapshot = result.requestSnapshot || {
+      tenantId,
+      userId,
+      modelId,
+      modelTier,
+    };
+    const match = result.contextMatch;
+    const unmatched = match
+      ? [
+          !match.tenantMatched && snapshot.tenantId ? "tenant" : null,
+          !match.userMatched ? "user" : null,
+          !match.modelMatched ? "model" : null,
+          match.tierMatched === false && snapshot.modelTier ? "tier" : null,
+        ].filter(Boolean)
+      : [];
 
     return (
       <div
@@ -219,11 +332,69 @@ function App() {
           </div>
         )}
 
+        {inputsChangedSinceCheck && !loading && (
+          <div className="context-banner context-banner-stale" role="status">
+            Form values changed — click <strong>Check Rate Limit</strong> to evaluate
+            the new context.
+          </div>
+        )}
+
+        <div className="context-strip">
+          <div className="context-strip-row">
+            <span className="context-chip">
+              <span className="context-chip-label">Tenant</span>
+              <code>{snapshot.tenantId || "—"}</code>
+            </span>
+            <span className="context-chip">
+              <span className="context-chip-label">User</span>
+              <code>{snapshot.userId}</code>
+            </span>
+            <span className="context-chip">
+              <span className="context-chip-label">Model</span>
+              <code>{snapshot.modelId}</code>
+            </span>
+            <span className="context-chip">
+              <span className="context-chip-label">Tier</span>
+              <code>{snapshot.modelTier || "—"}</code>
+            </span>
+          </div>
+          {result.primaryPolicy && (
+            <p className="context-primary-policy">
+              Primary policy: <strong>{result.primaryPolicy}</strong>
+            </p>
+          )}
+        </div>
+
+        {match && unmatched.length > 0 && (
+          <div className="context-banner context-banner-warn" role="note">
+            Unknown {unmatched.join(", ")} — only tier/global policies apply. Use the
+            demo presets or seeded names like <code>free_co</code>,{" "}
+            <code>tiny-model</code>.
+          </div>
+        )}
+
+        {match && (
+          <div className="match-grid" aria-label="Database match status">
+            <span className={`match-pill ${match.tenantMatched ? "ok" : "miss"}`}>
+              {formatMatchLabel("Tenant", match.tenantMatched)}
+            </span>
+            <span className={`match-pill ${match.userMatched ? "ok" : "miss"}`}>
+              {formatMatchLabel("User", match.userMatched)}
+            </span>
+            <span className={`match-pill ${match.modelMatched ? "ok" : "miss"}`}>
+              {formatMatchLabel("Model", match.modelMatched)}
+            </span>
+            <span className={`match-pill ${match.tierMatched ? "ok" : "miss"}`}>
+              {formatMatchLabel("Tier", match.tierMatched)}
+            </span>
+          </div>
+        )}
+
         <div
           className={`status-badge ${result.allowed ? "allowed" : "blocked"}`}
           role="status"
         >
-          {result.allowed ? "✅ Request Allowed" : "🚫 Request Blocked"}
+          {result.allowed ? "Request Allowed" : "Request Blocked"}
         </div>
 
         <div className="usage-block">
@@ -260,7 +431,7 @@ function App() {
 
         {result.allowed && result.fulfilled && result.fulfilled.length > 0 && (
           <div className="policies-box">
-            <p className="policies-title">✅ Satisfied Policies</p>
+            <p className="policies-title">Satisfied Policies</p>
             {result.fulfilled.map((policy, idx) => (
               <div key={`${policy.label}-${idx}`} className="policy-row">
                 <div className="policy-row-header">
@@ -286,62 +457,63 @@ function App() {
 
   if (!authChecked) {
     return (
-      <div className="page-shell">
-        <div className="app-card loading-shell">
-          <p className="loading-shell-text">Loading...</p>
-        </div>
+      <div className="center-shell">
+        <p className="loading-shell-text">Loading...</p>
       </div>
     );
   }
 
   if (authRequired && !authenticated) {
     return (
-      <div className="page-shell">
-        <div className="app-card auth-card-form">
-          <div className="app-header">
-            <h1 className="app-title">Access Required</h1>
-            <p className="app-subtitle">Enter the deployment password to continue</p>
+      <div className="app">
+        <AppHeader
+          demoSessionId={demoSessionId}
+          theme={theme}
+          onThemeChange={handleThemeChange}
+        />
+        <div className="center-shell">
+          <div className="auth-card">
+            <h1>Access Required</h1>
+            <p>Enter the deployment password to continue</p>
+            <form onSubmit={handleLogin}>
+              <label className="field-label" htmlFor="access-password">
+                Access Password
+              </label>
+              <input
+                id="access-password"
+                type="password"
+                value={accessPassword}
+                onChange={(e) => setAccessPassword(e.target.value)}
+                className="field-input"
+                style={{ marginBottom: "1rem" }}
+                autoComplete="current-password"
+              />
+              <button type="submit" className="btn-primary">
+                Unlock App
+              </button>
+            </form>
+            {authError && <div className="alert-error">{authError}</div>}
           </div>
-          <form onSubmit={handleLogin}>
-            <label className="field-label" htmlFor="access-password">
-              Access Password
-            </label>
-            <input
-              id="access-password"
-              type="password"
-              value={accessPassword}
-              onChange={(e) => setAccessPassword(e.target.value)}
-              className="field-input"
-              style={{ marginBottom: "1rem" }}
-              autoComplete="current-password"
-            />
-            <button type="submit" className="btn-primary">
-              Unlock App
-            </button>
-          </form>
-          {authError && <div className="alert-error">⚠️ {authError}</div>}
         </div>
       </div>
     );
   }
 
   return (
-    <div className="page-shell">
-      <div className="app-card">
-        <div className="app-header">
-          <h1 className="app-title">Rate Limiter</h1>
-          <p className="app-subtitle">Check request limits across policies</p>
-          <div className="app-meta">
-            <span className="meta-chip" title={demoSessionId}>
-              Demo session <code>{demoSessionId.slice(0, 8)}</code>
-            </span>
-            <span className="meta-chip">Reload page to reset counters</span>
-          </div>
-        </div>
+    <div className="app">
+      <AppHeader
+        demoSessionId={demoSessionId}
+        theme={theme}
+        onThemeChange={handleThemeChange}
+      />
 
-        <div className="app-grid">
-          <section className="panel panel-form">
-            <h2 className="panel-title">Request context</h2>
+      <main className="main">
+        <section className="panel">
+          <div className="panel-header">
+            <h2>Request context</h2>
+            <span className="badge">Demo</span>
+          </div>
+          <div className="panel-body">
             <div className="preset-row">
               {Object.entries(DEMO_PRESETS).map(([key, preset]) => (
                 <button
@@ -431,15 +603,19 @@ function App() {
               </div>
             </form>
 
-            {error && <div className="alert-error">⚠️ {error}</div>}
-          </section>
+            {error && <div className="alert-error">{error}</div>}
+          </div>
+        </section>
 
-          <section
-            className={`panel panel-results ${loading ? "is-loading" : ""}`}
-            aria-live="polite"
-            aria-busy={loading}
-          >
-            <h2 className="panel-title">Result</h2>
+        <section
+          className={`panel panel-results ${loading ? "is-loading" : ""}`}
+          aria-live="polite"
+          aria-busy={loading}
+        >
+          <div className="panel-header">
+            <h2>Result</h2>
+          </div>
+          <div className="panel-body">
             <div
               className={`panel-results-body ${
                 !hasCheckedOnce && !result ? "is-empty" : ""
@@ -447,9 +623,9 @@ function App() {
             >
               {renderResults()}
             </div>
-          </section>
-        </div>
-      </div>
+          </div>
+        </section>
+      </main>
     </div>
   );
 }

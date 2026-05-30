@@ -195,7 +195,7 @@ describe('Rate Limiter App', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(container.textContent).toContain('✅ Request Allowed');
+        expect(container.textContent).toContain('Request Allowed');
       });
     });
 
@@ -281,7 +281,7 @@ describe('Rate Limiter App', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(container.textContent).toContain('🚫 Request Blocked');
+        expect(container.textContent).toContain('Request Blocked');
       });
     });
 
