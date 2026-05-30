@@ -22,6 +22,10 @@ function getRateLimitCall() {
   );
 }
 
+function getSubmitButton(container) {
+  return container.querySelector('button[type="submit"]');
+}
+
 describe('Rate Limiter App', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -56,7 +60,7 @@ describe('Rate Limiter App', () => {
     test('should render submit button', async () => {
       const { container } = render(<App />);
       await waitFor(() => {
-        const button = container.querySelector('button');
+        const button = getSubmitButton(container);
         expect(button).toBeTruthy();
         expect(button.textContent).toContain('Check Rate Limit');
       });
@@ -125,7 +129,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -139,7 +143,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -154,7 +158,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -186,7 +190,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -211,7 +215,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -244,7 +248,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -272,7 +276,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -297,7 +301,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -323,7 +327,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -344,7 +348,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
 
@@ -381,7 +385,7 @@ describe('Rate Limiter App', () => {
       await waitFor(() => {
         expect(container.textContent).toContain('Check Rate Limit');
       });
-      const button = container.querySelector('button');
+      const button = getSubmitButton(container);
       
       fireEvent.click(button);
       

@@ -1,14 +1,60 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 const API_BASE =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.PROD ? "" : "http://localhost:8000");
+
+const DEMO_PRESETS = {
+  enterprise: {
+    label: "Enterprise demo",
+    tenantId: "enterprise_co",
+    userId: "ent-user-1",
+    modelId: "gpt-4o",
+    modelTier: "premium",
+  },
+  free: {
+    label: "Free tier demo",
+    tenantId: "free_co",
+    userId: "free-user-1",
+    modelId: "tiny-model",
+    modelTier: "free",
+  },
+};
 
 function createDemoSessionId() {
   if (typeof crypto !== "undefined" && crypto.randomUUID) {
     return crypto.randomUUID();
   }
   return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function formatWindow(windowSeconds) {
+  if (windowSeconds >= 3600 && windowSeconds % 3600 === 0) {
+    const hours = windowSeconds / 3600;
+    return `${hours} hour${hours === 1 ? "" : "s"} window`;
+  }
+  if (windowSeconds >= 60 && windowSeconds % 60 === 0) {
+    const minutes = windowSeconds / 60;
+    return `${minutes} minute${minutes === 1 ? "" : "s"} window`;
+  }
+  return `${windowSeconds} second${windowSeconds === 1 ? "" : "s"} window`;
+}
+
+function progressColor(count, limit) {
+  if (!limit || limit <= 0) {
+    return "var(--gray-400)";
+  }
+  const percentage = Math.min((count / limit) * 100, 100);
+  if (percentage > 80) return "var(--danger)";
+  if (percentage > 50) return "var(--warning)";
+  return "var(--success)";
+}
+
+function usagePercent(count, limit) {
+  if (!limit || limit <= 0) {
+    return 0;
+  }
+  return Math.min((count / limit) * 100, 100);
 }
 
 function App() {
@@ -25,11 +71,15 @@ function App() {
   const [accessPassword, setAccessPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [demoSessionId] = useState(createDemoSessionId);
+  const [hasCheckedOnce, setHasCheckedOnce] = useState(false);
+  const [showResultsIntro, setShowResultsIntro] = useState(false);
+  const requestIdRef = useRef(0);
 
   const apiHeaders = {
     "Content-Type": "application/json",
     "X-Demo-Session": demoSessionId,
   };
+
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -51,7 +101,19 @@ function App() {
     };
 
     checkAuth();
-  }, []);
+  }, [demoSessionId]);
+
+  const applyPreset = (presetKey) => {
+    const preset = DEMO_PRESETS[presetKey];
+    if (!preset || loading) {
+      return;
+    }
+    setTenantId(preset.tenantId);
+    setUserId(preset.userId);
+    setModelId(preset.modelId);
+    setModelTier(preset.modelTier);
+    setError("");
+  };
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -78,9 +140,9 @@ function App() {
   };
 
   const handleCheck = async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError("");
-    setResult(null);
 
     try {
       const res = await fetch(`${API_BASE}/rate-limit/check`, {
@@ -95,445 +157,299 @@ function App() {
         }),
       });
 
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || "Request failed");
       }
 
       const data = await res.json();
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
+
+      if (!hasCheckedOnce) {
+        setShowResultsIntro(true);
+      }
       setResult(data);
+      setHasCheckedOnce(true);
     } catch (e) {
+      if (requestId !== requestIdRef.current) {
+        return;
+      }
       setError(e.message);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) {
+        setLoading(false);
+      }
     }
   };
 
-  const containerStyle = {
-    minHeight: "100vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "1.5rem",
-  };
-
-  const mainCardStyle = {
-    background: "white",
-    borderRadius: "1rem",
-    boxShadow:
-      "0 10px 40px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.1)",
-    padding: "2.5rem",
-    maxWidth: "500px",
-    width: "100%",
-  };
-
-  const headerStyle = {
-    marginBottom: "2rem",
-    textAlign: "center",
-  };
-
-  const titleStyle = {
-    fontSize: "2rem",
-    fontWeight: "700",
-    color: "var(--gray-900)",
-    marginBottom: "0.5rem",
-  };
-
-  const subtitleStyle = {
-    fontSize: "0.95rem",
-    color: "var(--gray-500)",
-  };
-
-  const formGroupStyle = {
-    marginBottom: "1.25rem",
-  };
-
-  const labelStyle = {
-    display: "block",
-    fontSize: "0.875rem",
-    fontWeight: "600",
-    color: "var(--gray-700)",
-    marginBottom: "0.5rem",
-  };
-
-  const inputStyle = {
-    width: "100%",
-    padding: "0.75rem",
-    fontSize: "0.95rem",
-    border: "1px solid var(--gray-300)",
-    borderRadius: "0.5rem",
-    transition: "all 0.25s ease",
-    outline: "none",
-    boxSizing: "border-box",
-  };
-
-  const buttonStyle = {
-    width: "100%",
-    padding: "0.875rem",
-    fontSize: "1rem",
-    fontWeight: "600",
-    color: "white",
-    background: "var(--primary)",
-    border: "none",
-    borderRadius: "0.5rem",
-    marginTop: "0.5rem",
-    transition: "all 0.25s ease",
-  };
-
-  const resultCardStyle = {
-    marginTop: "2rem",
-    padding: "1.5rem",
-    borderRadius: "0.75rem",
-    border: "1px solid var(--gray-200)",
-  };
-
-  const statusBadgeStyle = (allowed) => ({
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "0.5rem",
-    padding: "0.5rem 1rem",
-    borderRadius: "0.5rem",
-    fontWeight: "600",
-    marginBottom: "1rem",
-    backgroundColor: allowed ? "rgba(16, 185, 129, 0.1)" : "rgba(239, 68, 68, 0.1)",
-    color: allowed ? "var(--success)" : "var(--danger)",
-    fontSize: "0.9rem",
-  });
-
-  const progressBarStyle = {
-    width: "100%",
-    height: "8px",
-    backgroundColor: "var(--gray-200)",
-    borderRadius: "4px",
-    overflow: "hidden",
-    marginTop: "0.5rem",
-  };
-
-  const progressFillStyle = (count, limit) => {
-    const percentage = Math.min((count / limit) * 100, 100);
-    const color = percentage > 80 ? "var(--danger)" : percentage > 50 ? "var(--warning)" : "var(--success)";
-    return {
-      height: "100%",
-      width: `${percentage}%`,
-      backgroundColor: color,
-      transition: "width 0.3s ease",
-    };
-  };
-
-  const policyListStyle = {
-    marginTop: "1.25rem",
-    padding: "1rem",
-    backgroundColor: "var(--gray-50)",
-    borderRadius: "0.5rem",
-  };
-
-  const policyItemStyle = {
-    fontSize: "0.9rem",
-    color: "var(--gray-700)",
-    marginBottom: "0.75rem",
-    paddingBottom: "0.75rem",
-    borderBottom: "1px solid var(--gray-200)",
-  };
-
-  const policyItemLastStyle = {
-    fontSize: "0.9rem",
-    color: "var(--gray-700)",
-    marginBottom: 0,
-    paddingBottom: 0,
-    borderBottom: "none",
-  };
-
-  const errorStyle = {
-    marginTop: "1rem",
-    padding: "1rem",
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    color: "var(--danger)",
-    borderRadius: "0.5rem",
-    fontSize: "0.9rem",
-    borderLeft: "4px solid var(--danger)",
-  };
-
-  return (
-    <div style={containerStyle}>
-      {!authChecked ? (
-        <div style={mainCardStyle}>
-          <p style={subtitleStyle}>Loading...</p>
+  const renderResults = () => {
+    if (!hasCheckedOnce && !result) {
+      return (
+        <div className="results-placeholder">
+          <p className="results-placeholder-title">Results panel</p>
+          <p>
+            Click <strong>Check Rate Limit</strong> to see usage, policies, and block
+            reasons here.
+          </p>
         </div>
-      ) : authRequired && !authenticated ? (
-        <div style={mainCardStyle}>
-          <div style={headerStyle}>
-            <h1 style={titleStyle}>Access Required</h1>
-            <p style={subtitleStyle}>Enter the deployment password to continue</p>
+      );
+    }
+
+    if (!result) {
+      return null;
+    }
+
+    const percent = usagePercent(result.count, result.limit);
+    const boundedCount = Math.min(result.count, result.limit);
+
+    return (
+      <div
+        className={`results-content${showResultsIntro ? " is-first-show" : ""}`}
+      >
+        {loading && (
+          <div className="loading-pill" aria-hidden="true">
+            <span className="loading-dot" />
+            Updating...
+          </div>
+        )}
+
+        <div
+          className={`status-badge ${result.allowed ? "allowed" : "blocked"}`}
+          role="status"
+        >
+          {result.allowed ? "✅ Request Allowed" : "🚫 Request Blocked"}
+        </div>
+
+        <div className="usage-block">
+          <div className="usage-header">
+            <span className="usage-label">Primary Limit Usage</span>
+            <span className="usage-count" aria-live="polite" aria-atomic="true">
+              {result.count} / {result.limit}
+            </span>
+          </div>
+          <div
+            className="progress-track"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={result.limit}
+            aria-valuenow={boundedCount}
+            aria-label="Primary limit usage"
+          >
+            <div
+              className="progress-fill"
+              style={{
+                width: `${percent}%`,
+                backgroundColor: progressColor(result.count, result.limit),
+              }}
+            />
+          </div>
+          <p className="window-caption">{formatWindow(result.windowSeconds)}</p>
+        </div>
+
+        {result.cause && !result.allowed && (
+          <div className="cause-box" role="alert">
+            <strong>Reason:</strong> {result.cause}
+          </div>
+        )}
+
+        {result.allowed && result.fulfilled && result.fulfilled.length > 0 && (
+          <div className="policies-box">
+            <p className="policies-title">✅ Satisfied Policies</p>
+            {result.fulfilled.map((policy, idx) => (
+              <div key={`${policy.label}-${idx}`} className="policy-row">
+                <div className="policy-row-header">
+                  <span className="policy-label">{policy.label}</span>
+                  <span className="policy-count">
+                    {policy.count}/{policy.limit}
+                  </span>
+                </div>
+                <p className="policy-window">
+                  {formatWindow(policy.windowSeconds)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <p className="results-hint">
+          Click again to increment usage, or reload the page to reset your session
+        </p>
+      </div>
+    );
+  };
+
+  if (!authChecked) {
+    return (
+      <div className="page-shell">
+        <div className="app-card loading-shell">
+          <p className="loading-shell-text">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (authRequired && !authenticated) {
+    return (
+      <div className="page-shell">
+        <div className="app-card auth-card-form">
+          <div className="app-header">
+            <h1 className="app-title">Access Required</h1>
+            <p className="app-subtitle">Enter the deployment password to continue</p>
           </div>
           <form onSubmit={handleLogin}>
-            <div style={formGroupStyle}>
-              <label style={labelStyle} htmlFor="access-password">
-                Access Password
-              </label>
-              <input
-                id="access-password"
-                type="password"
-                value={accessPassword}
-                onChange={(e) => setAccessPassword(e.target.value)}
-                style={inputStyle}
-                autoComplete="current-password"
-              />
-            </div>
-            <button type="submit" style={buttonStyle}>
+            <label className="field-label" htmlFor="access-password">
+              Access Password
+            </label>
+            <input
+              id="access-password"
+              type="password"
+              value={accessPassword}
+              onChange={(e) => setAccessPassword(e.target.value)}
+              className="field-input"
+              style={{ marginBottom: "1rem" }}
+              autoComplete="current-password"
+            />
+            <button type="submit" className="btn-primary">
               Unlock App
             </button>
           </form>
-          {authError && <div style={errorStyle}>⚠️ {authError}</div>}
+          {authError && <div className="alert-error">⚠️ {authError}</div>}
         </div>
-      ) : (
-      <div style={mainCardStyle}>
-        {/* Header */}
-        <div style={headerStyle}>
-          <h1 style={titleStyle}>🚀 Rate Limiter</h1>
-          <p style={subtitleStyle}>Check request limits across policies</p>
-          <p
-            style={{
-              ...subtitleStyle,
-              fontSize: "0.85rem",
-              marginTop: "0.35rem",
-              color: "var(--gray-400)",
-            }}
-          >
-            Fresh demo session — reload the page to reset your counters
-          </p>
-        </div>
-
-        {/* Form */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleCheck();
-          }}
-        >
-          <div style={formGroupStyle}>
-            <label style={labelStyle} htmlFor="tenant-id">Tenant ID</label>
-            <input
-              id="tenant-id"
-              type="text"
-              value={tenantId}
-              onChange={(e) => setTenantId(e.target.value)}
-              style={inputStyle}
-              onFocus={(e) => (e.target.style.cssText += "; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);)")}
-              onBlur={(e) => (e.target.style.boxShadow = "none")}
-              placeholder="e.g., enterprise_co"
-            />
-          </div>
-
-          <div style={formGroupStyle}>
-            <label style={labelStyle} htmlFor="user-id">User ID</label>
-            <input
-              id="user-id"
-              type="text"
-              value={userId}
-              onChange={(e) => setUserId(e.target.value)}
-              style={inputStyle}
-              onFocus={(e) => (e.target.style.cssText += "; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);)")}
-              onBlur={(e) => (e.target.style.boxShadow = "none")}
-              placeholder="e.g., ent-user-1"
-            />
-          </div>
-
-          <div style={formGroupStyle}>
-            <label style={labelStyle} htmlFor="model-id">Model ID</label>
-            <input
-              id="model-id"
-              type="text"
-              value={modelId}
-              onChange={(e) => setModelId(e.target.value)}
-              style={inputStyle}
-              onFocus={(e) => (e.target.style.cssText += "; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);)")}
-              onBlur={(e) => (e.target.style.boxShadow = "none")}
-              placeholder="e.g., gpt-4o"
-            />
-          </div>
-
-          <div style={formGroupStyle}>
-            <label style={labelStyle} htmlFor="model-tier">Model Tier</label>
-            <select
-              id="model-tier"
-              value={modelTier}
-              onChange={(e) => setModelTier(e.target.value)}
-              style={{
-                ...inputStyle,
-                appearance: "none",
-                paddingRight: "2.5rem",
-                backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M6 9L1 4h10z'/%3E%3C/svg%3E\")",
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 0.75rem center",
-                backgroundColor: "white",
-              }}
-              onFocus={(e) => (e.target.style.cssText += "; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);)")}
-              onBlur={(e) => (e.target.style.boxShadow = "none")}
-            >
-              <option value="premium">Premium</option>
-              <option value="standard">Standard</option>
-              <option value="free">Free</option>
-            </select>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            style={{
-              ...buttonStyle,
-              backgroundColor: loading ? "var(--gray-400)" : "var(--primary)",
-              cursor: loading ? "not-allowed" : "pointer",
-              opacity: loading ? 0.7 : 1,
-            }}
-            onMouseEnter={(e) => {
-              if (!loading) e.target.style.backgroundColor = "var(--primary-dark)";
-            }}
-            onMouseLeave={(e) => {
-              if (!loading) e.target.style.backgroundColor = "var(--primary)";
-            }}
-          >
-            {loading ? "Checking..." : "Check Rate Limit"}
-          </button>
-        </form>
-
-        {/* Error */}
-        {error && <div style={errorStyle}>⚠️ {error}</div>}
-
-        {/* Result */}
-        {result && (
-          <div style={resultCardStyle}>
-            <div style={statusBadgeStyle(result.allowed)}>
-              {result.allowed ? "✅ Request Allowed" : "🚫 Request Blocked"}
-            </div>
-
-            <div style={{ marginBottom: "1.25rem" }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  marginBottom: "0.5rem",
-                }}
-              >
-                <span style={{ fontSize: "0.9rem", color: "var(--gray-700)" }}>
-                  Primary Limit Usage
-                </span>
-                <span
-                  style={{
-                    fontWeight: "600",
-                    color: "var(--gray-900)",
-                  }}
-                >
-                  {result.count} / {result.limit}
-                </span>
-              </div>
-              <div style={progressBarStyle}>
-                <div style={progressFillStyle(result.count, result.limit)} />
-              </div>
-              <p
-                style={{
-                  fontSize: "0.8rem",
-                  color: "var(--gray-500)",
-                  marginTop: "0.5rem",
-                }}
-              >
-                {Math.round(
-                  (result.windowSeconds / 60) % 60 === 0
-                    ? result.windowSeconds / 3600
-                    : result.windowSeconds / 60
-                )}{" "}
-                {result.windowSeconds >= 3600 ? "hours" : "minutes"} window
-              </p>
-            </div>
-
-            {/* Rejection Cause */}
-            {result.cause && !result.allowed && (
-              <div
-                style={{
-                  padding: "0.75rem",
-                  backgroundColor: "rgba(239, 68, 68, 0.05)",
-                  border: "1px solid rgba(239, 68, 68, 0.3)",
-                  borderRadius: "0.5rem",
-                  marginBottom: "1rem",
-                  fontSize: "0.9rem",
-                  color: "var(--danger)",
-                  lineHeight: "1.5",
-                }}
-              >
-                <strong>Reason:</strong> {result.cause}
-              </div>
-            )}
-
-            {/* Fulfilled Policies */}
-            {result.allowed &&
-              result.fulfilled &&
-              result.fulfilled.length > 0 && (
-                <div style={policyListStyle}>
-                  <p
-                    style={{
-                      fontSize: "0.9rem",
-                      fontWeight: "600",
-                      color: "var(--gray-800)",
-                      marginBottom: "0.75rem",
-                    }}
-                  >
-                    ✅ Satisfied Policies
-                  </p>
-                  {result.fulfilled.map((f, idx) => (
-                    <div
-                      key={idx}
-                      style={
-                        idx === result.fulfilled.length - 1
-                          ? policyItemLastStyle
-                          : policyItemStyle
-                      }
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          marginBottom: "0.35rem",
-                        }}
-                      >
-                        <span style={{ fontWeight: "600", color: "var(--gray-900)" }}>
-                          {f.label}
-                        </span>
-                        <span style={{ color: "var(--success)", fontWeight: "500" }}>
-                          {f.count}/{f.limit}
-                        </span>
-                      </div>
-                      <p
-                        style={{
-                          fontSize: "0.8rem",
-                          color: "var(--gray-500)",
-                          margin: 0,
-                        }}
-                      >
-                        {Math.round(
-                          (f.windowSeconds / 60) % 60 === 0
-                            ? f.windowSeconds / 3600
-                            : f.windowSeconds / 60
-                        )}{" "}
-                        {f.windowSeconds >= 3600 ? "hours" : "minutes"} window
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-            <p
-              style={{
-                marginTop: "1rem",
-                fontSize: "0.85rem",
-                color: "var(--gray-500)",
-                textAlign: "center",
-              }}
-            >
-              💡 Click multiple times to test rate limiting behavior
-            </p>
-          </div>
-        )}
       </div>
-      )}
+    );
+  }
+
+  return (
+    <div className="page-shell">
+      <div className="app-card">
+        <div className="app-header">
+          <h1 className="app-title">Rate Limiter</h1>
+          <p className="app-subtitle">Check request limits across policies</p>
+          <div className="app-meta">
+            <span className="meta-chip" title={demoSessionId}>
+              Demo session <code>{demoSessionId.slice(0, 8)}</code>
+            </span>
+            <span className="meta-chip">Reload page to reset counters</span>
+          </div>
+        </div>
+
+        <div className="app-grid">
+          <section className="panel panel-form">
+            <h2 className="panel-title">Request context</h2>
+            <div className="preset-row">
+              {Object.entries(DEMO_PRESETS).map(([key, preset]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className="preset-btn"
+                  disabled={loading}
+                  onClick={() => applyPreset(key)}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+            <form
+              className="form-grid form-grid-two"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCheck();
+              }}
+            >
+              <div>
+                <label className="field-label" htmlFor="tenant-id">
+                  Tenant ID
+                </label>
+                <input
+                  id="tenant-id"
+                  type="text"
+                  value={tenantId}
+                  onChange={(e) => setTenantId(e.target.value)}
+                  className="field-input"
+                  placeholder="enterprise_co"
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="user-id">
+                  User ID
+                </label>
+                <input
+                  id="user-id"
+                  type="text"
+                  value={userId}
+                  onChange={(e) => setUserId(e.target.value)}
+                  className="field-input"
+                  placeholder="ent-user-1"
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="model-id">
+                  Model ID
+                </label>
+                <input
+                  id="model-id"
+                  type="text"
+                  value={modelId}
+                  onChange={(e) => setModelId(e.target.value)}
+                  className="field-input"
+                  placeholder="gpt-4o"
+                  disabled={loading}
+                />
+              </div>
+
+              <div>
+                <label className="field-label" htmlFor="model-tier">
+                  Model Tier
+                </label>
+                <select
+                  id="model-tier"
+                  value={modelTier}
+                  onChange={(e) => setModelTier(e.target.value)}
+                  className="field-select"
+                  disabled={loading}
+                >
+                  <option value="premium">Premium</option>
+                  <option value="standard">Standard</option>
+                  <option value="free">Free</option>
+                </select>
+              </div>
+
+              <div className="form-span-all">
+                <button type="submit" className="btn-primary" disabled={loading}>
+                  {loading ? "Checking..." : "Check Rate Limit"}
+                </button>
+              </div>
+            </form>
+
+            {error && <div className="alert-error">⚠️ {error}</div>}
+          </section>
+
+          <section
+            className={`panel panel-results ${loading ? "is-loading" : ""}`}
+            aria-live="polite"
+            aria-busy={loading}
+          >
+            <h2 className="panel-title">Result</h2>
+            <div
+              className={`panel-results-body ${
+                !hasCheckedOnce && !result ? "is-empty" : ""
+              }`}
+            >
+              {renderResults()}
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
