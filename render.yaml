@@ -1,6 +1,4 @@
-# Render Blueprint — free tier only
-# If `plan` is omitted, Render defaults to PAID tiers:
-#   web/keyvalue → starter | postgres → basic-256mb
+# Render Blueprint — free tier only (single web service, no Postgres/Redis)
 services:
   - type: web
     name: rate-limiter
@@ -15,26 +13,5 @@ services:
         value: "3.12.0"
       - key: ENV
         value: production
-      - key: DATABASE_URL
-        fromDatabase:
-          name: rate-limiter-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: keyvalue
-          name: rate-limiter-redis
-          property: connectionString
-      - key: APP_ACCESS_PASSWORD
-        sync: false
-      - key: SESSION_SECRET
-        generateValue: true
-
-  - type: keyvalue
-    name: rate-limiter-redis
-    plan: free
-    maxmemoryPolicy: allkeys-lru
-    ipAllowList: []
-
-databases:
-  - name: rate-limiter-db
-    plan: free
+      - key: STORAGE_MODE
+        value: session

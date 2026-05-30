@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 with patch("psycopg2.connect", return_value=MagicMock()):
-    from main import app, rate_limiter, policy_resolver
+    from main import app
 
 from rate_limiter import SlidingWindowRateLimiterTx
 from models import RateLimitRequest

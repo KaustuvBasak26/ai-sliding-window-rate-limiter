@@ -90,6 +90,10 @@ USER_MODEL > API_KEY > TENANT > MODEL > MODEL_TIER > GLOBAL
 .
 ├── backend/
 │   ├── main.py                 # FastAPI app, auth, static hosting, rate-limit API
+│   ├── session_store.py        # Per-browser SQLite + in-memory counters
+│   ├── sqlite_policy_resolver.py
+│   ├── memory_rate_limiter.py  # Session-mode sliding window
+│   ├── rate_limit_handler.py   # Shared allow/block evaluation logic
 │   ├── security.py             # Production hardening, sessions, login throttling
 │   ├── rate_limiter.py         # SlidingWindowRateLimiterTx (Redis)
 │   ├── policy_resolver.py      # Postgres-backed policy resolution
@@ -189,15 +193,11 @@ Open the URL Vite prints (usually http://localhost:5173).
 ```bash
 cd frontend && npm install && npm run build
 cd ../backend
-export APP_ACCESS_PASSWORD=local-demo-password
-export SESSION_SECRET=local-demo-secret
 export ENV=production
 uvicorn main:app --port 8000
 ```
 
-Open http://localhost:8000 (UI + API same origin, password gate enabled).
-
-Copy `.env.example` to `.env` for local overrides if needed.
+Open http://localhost:8000 (UI + API same origin). Copy `.env.example` to `.env` for local overrides if needed.
 
 ---
 
@@ -209,12 +209,28 @@ Copy `.env.example` to `.env` for local overrides if needed.
 | `RL_PG_DSN` | No | see below | Alternative psycopg2-style DSN for local dev |
 | `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection URL |
 | `CORS_ORIGINS` | No | `http://localhost:5173,...` | Comma-separated allowed frontend origins (local dev only) |
-| `APP_ACCESS_PASSWORD` | Production deploy | unset | Gates the deployed app behind a password screen |
-| `SESSION_SECRET` | Production deploy | auto on Render | Signs the httpOnly session cookie |
+| `APP_ACCESS_PASSWORD` | No | unset | Optional — gates the app behind a password if set |
+| `SESSION_SECRET` | Only if password set | unset | Signs session cookies when using `APP_ACCESS_PASSWORD` |
+| `STORAGE_MODE` | Render | `postgres` locally | `session` = free per-browser SQLite; `postgres` = Postgres + Redis |
+| `MAX_DEMO_SESSIONS` | No | `200` | Cap active browser sessions on the server (session mode) |
+| `SESSION_IDLE_SECONDS` | No | `3600` | Drop idle session state after this many seconds |
 | `ENV` | No | unset locally | Set to `production` on Render to enable hardening |
-| `VITE_API_URL` | Local frontend only | `http://localhost:8000` | Not needed in production (same-origin) |
 
-Local defaults (no env vars needed):
+### Session storage mode (Render default)
+
+When `STORAGE_MODE=session` (configured in `render.yaml`):
+
+- Each **browser page load** gets a new random `X-Demo-Session` id (refresh = new session).
+- The server creates a fresh **in-memory SQLite** database with seeded policies for that id only.
+- Rate-limit counters live in **in-memory** sliding windows scoped to that session.
+- **Other users are unaffected** — they have their own session ids and isolated state.
+- **No Postgres, no Redis, no 30-day expiry** — only the free Render web service.
+- Idle sessions are cleaned up after 1 hour on the server to save memory.
+- SQLite connections are closed when sessions expire or when the cap is reached.
+
+Local development can still use full Postgres + Redis with `STORAGE_MODE=postgres`.
+
+Local defaults for postgres mode:
 
 ```
 RL_PG_DSN=dbname=rate_limiter user=postgres password=postgres host=localhost port=5432
@@ -384,19 +400,15 @@ Deployed builds apply several layers of hardening. **Important:** any code that 
 
 | Protection | What it does |
 |------------|----------------|
-| **Startup validation** | Production refuses to boot without `APP_ACCESS_PASSWORD` and `SESSION_SECRET` |
-| **Single-origin app** | Frontend is served by FastAPI (not a separate static URL), so there is no public repo-style source tree |
-| **Access password** | `APP_ACCESS_PASSWORD` gates the UI; session stored in an **httpOnly** cookie with expiry (not in JS) |
-| **Login throttling** | Failed login attempts rate-limited via Redis in production |
-| **Timing-safe compare** | Password verification uses constant-time comparison |
-| **Path traversal guard** | Static file handler rejects `../` escapes |
+| **Public by default** | No login required on deploy; optional `APP_ACCESS_PASSWORD` if you want a gate later |
+| **Single-origin app** | Frontend is served by FastAPI (not a separate static URL) |
 | **No source maps** | Production Vite build disables source maps |
 | **Minified bundles** | Hashed filenames (`assets/[hash].js`) with no readable `.jsx` source |
 | **Swagger disabled** | `/docs`, `/redoc`, and OpenAPI JSON are off in production |
 | **Sanitized API responses** | Redis keys and stack traces are stripped from production responses |
 | **Security headers** | CSP, `X-Frame-Options`, `X-Robots-Tag`, `no-store` caching, etc. |
 | **robots.txt** | `Disallow: /` to discourage search engine indexing |
-| **UI deterrents** | Right-click, view-source shortcut, and common DevTools shortcuts blocked in production builds |
+| **Optional password gate** | Set `APP_ACCESS_PASSWORD` + `SESSION_SECRET` to require login |
 
 ### Known limits (honest)
 
@@ -405,44 +417,38 @@ Deployed builds apply several layers of hardening. **Important:** any code that 
 | "Hide source code" | Minified JS is still downloadable; determined users can reverse it |
 | "Block Network tab" | Impossible in browsers — API calls remain observable |
 | "Block DevTools" | Client-side blocks are bypassed in seconds |
-| Password gate | Stops casual visitors; not a substitute for enterprise IAM |
+| Password gate | Optional — stops casual visitors if you set `APP_ACCESS_PASSWORD` |
 
-These controls are **defense in depth for a demo**, not DRM.
+These controls are **defense in depth for a demo**, not DRM. The default deploy is **fully public**.
 
 ### After deploying on Render
 
-1. Set **`APP_ACCESS_PASSWORD`** on the `rate-limiter` service (Render prompts for this during Blueprint sync).
-2. Share that password only with people who should use the demo.
-3. The app URL is a single service, e.g. `https://rate-limiter.onrender.com`.
+1. Click **Deploy Blueprint** — no secrets to enter.
+2. Open your service URL (e.g. `https://rate-limiter.onrender.com`).
 
-Local development is unchanged — no password required unless you set `APP_ACCESS_PASSWORD` locally.
+To add a password later, set `APP_ACCESS_PASSWORD` and `SESSION_SECRET` in the Render dashboard and redeploy.
 
 ---
 
 ## Deploy to Render
 
-This repo includes a [Render Blueprint](https://render.com/docs/blueprint-spec) (`render.yaml`) configured for the **free tier only**. All billable resources explicitly set `plan: free` — if you omit `plan`, Render defaults to paid instance types (`starter` for web/Key Value, `basic-256mb` for Postgres).
+This repo includes a [Render Blueprint](https://render.com/docs/blueprint-spec) configured for the **free tier only** — a **single free web service** using session storage (no Postgres or Redis).
 
 | Resource | Blueprint name | Instance type |
 |----------|----------------|---------------|
 | App + API (Python) | `rate-limiter` | **Free** |
-| Key Value (Redis) | `rate-limiter-redis` | **Free** |
-| PostgreSQL | `rate-limiter-db` | **Free** |
 
-The Blueprint provisions:
+`STORAGE_MODE=session` means each visitor gets an isolated demo that **resets on page reload** without affecting others. No 30-day Postgres expiry.
 
-1. **PostgreSQL** — policy database (auto-migrated on first boot)
-2. **Redis** — sliding window counters
-3. **Web service** — builds the React UI, serves it from FastAPI, and exposes the API on the same URL
+For local full-stack development, use Docker Postgres + Redis with `STORAGE_MODE=postgres`.
 
 ### Option A — One-click Blueprint deploy
 
 1. Push this repository to GitHub.
 2. Open [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
 3. Connect the repo; Render reads `render.yaml` and creates all services.
-4. When prompted, set **`APP_ACCESS_PASSWORD`** to a strong password.
-5. Wait for the first deploy to finish (migrations run automatically).
-6. Open your service URL (e.g. `https://rate-limiter.onrender.com`) and enter the access password.
+4. Click **Deploy Blueprint** (no password prompt).
+5. Open your service URL when the deploy finishes.
 
 ### Option B — Manual service setup
 
@@ -462,23 +468,19 @@ If you prefer creating services individually:
 Environment variables:
 
 - `ENV=production`
-- `DATABASE_URL` — from Render Postgres (**Free** instance)
-- `REDIS_URL` — from Render Key Value (**Free** instance)
-- `APP_ACCESS_PASSWORD` — your chosen gate password
-- `SESSION_SECRET` — random string (Render can generate this)
+- `STORAGE_MODE=session`
 
-#### Render Key Value (Redis-compatible)
+No Postgres or Redis required for the public demo deploy.
 
-| Setting | Value |
-|---------|-------|
-| Instance Type | **Free** |
-| Internal connections only | Yes (`ipAllowList: []` in blueprint) |
+#### Optional: full Postgres + Redis (local or paid Render)
 
-#### Render Postgres
+| Resource | Instance type |
+|----------|---------------|
+| Web service | **Free** or paid |
+| Key Value (Redis) | **Free** |
+| PostgreSQL | **Free** (expires after 30 days) |
 
-| Setting | Value |
-|---------|-------|
-| Instance Type | **Free** |
+Set `STORAGE_MODE=postgres` and provide `DATABASE_URL` + `REDIS_URL`.
 
 ### Post-deploy verification
 
@@ -486,15 +488,14 @@ Environment variables:
 curl https://YOUR-APP.onrender.com/health
 ```
 
-Open the app URL, enter your `APP_ACCESS_PASSWORD`, then run the demo scenarios. Unauthenticated API calls return `401 Authentication required`.
+Open the app URL and run the demo scenarios. The app is public by default.
 
 ### Render free tier notes
 
-- All services in `render.yaml` use `plan: free` where applicable; do not change to `starter`, `standard`, or `basic-*` unless you intend to pay.
-- Web services spin down after inactivity; the first request may take ~30s.
-- Free PostgreSQL **expires after 30 days** and is permanently deleted — export data or upgrade for long-lived demos.
-- Free Key Value has limited memory; suitable for this demo's sliding-window counters.
-- Redis and Postgres must both be running before the API can serve traffic.
+- Deploy uses **one free web service** only (`plan: free`).
+- Session mode avoids Postgres entirely — **no 30-day database expiry**.
+- Web service spins down after inactivity; first request may take ~30s.
+- If you switch to `STORAGE_MODE=postgres`, free Postgres still expires after **30 days**.
 
 ---
 
@@ -504,9 +505,7 @@ Open the app URL, enter your `APP_ACCESS_PASSWORD`, then run the demo scenarios.
 |-------|-----|
 | Redis connection error | Ensure Redis is running (`docker ps`) or `REDIS_URL` is set |
 | Postgres connection error | Check `DATABASE_URL` / `RL_PG_DSN`; on Render, SSL is enabled automatically |
-| `401 Authentication required` | Log in via the app UI, or set `APP_ACCESS_PASSWORD` only on production |
-| Deploy fails immediately on boot | Set `APP_ACCESS_PASSWORD` and ensure `SESSION_SECRET` is present |
-| `429 Too many login attempts` | Wait 5 minutes or retry from a different network |
+| `401 Authentication required` | Only if you set `APP_ACCESS_PASSWORD` — log in via the UI or unset it for a public demo |
 | Port in use locally | `uvicorn main:app --port 8001` |
 | Module not found | Activate venv and `pip install -r requirements.txt` |
 

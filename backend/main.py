@@ -6,13 +6,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-import redis
 
-from config import get_cors_origins, get_pg_dsn, get_redis_url, get_static_dir, resolve_static_file
+from config import (
+    get_cors_origins,
+    get_pg_dsn,
+    get_redis_url,
+    get_static_dir,
+    resolve_static_file,
+    use_session_storage,
+)
 from models import RateLimitRequest, RateLimitResponse
+from policy_resolver import PolicyResolver
+from rate_limit_handler import evaluate_rate_limit
 from rate_limiter import SlidingWindowRateLimiterTx
-from policy_resolver import PolicyResolver, SCOPE_PRECEDENCE
 from security import (
+    SESSION_COOKIE,
+    SESSION_MAX_AGE_SECONDS,
     SecurityHeadersMiddleware,
     check_login_rate_limit,
     clear_login_attempts,
@@ -21,12 +30,9 @@ from security import (
     is_production,
     passwords_match,
     require_session,
-    sanitize_cause,
-    sanitize_fulfilled,
-    SESSION_COOKIE,
-    SESSION_MAX_AGE_SECONDS,
     verify_session,
 )
+from session_store import SessionStore
 
 app = FastAPI(
     title="AI Rate Limiter Demo",
@@ -41,12 +47,53 @@ app.add_middleware(
     allow_origins=get_cors_origins(),
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    allow_headers=["Content-Type", "X-Demo-Session"],
 )
 
-redis_client = redis.from_url(get_redis_url(), decode_responses=False)
-rate_limiter = SlidingWindowRateLimiterTx(redis_client)
-policy_resolver = PolicyResolver(get_pg_dsn())
+session_store = None
+redis_client = None
+rate_limiter = None
+policy_resolver = None
+
+
+def get_session_store() -> SessionStore:
+    global session_store
+    if session_store is None:
+        session_store = SessionStore()
+    return session_store
+
+
+def _init_persistent_backend() -> None:
+    global redis_client, rate_limiter, policy_resolver
+    if policy_resolver is not None:
+        return
+    import redis
+
+    redis_client = redis.from_url(get_redis_url(), decode_responses=False)
+    rate_limiter = SlidingWindowRateLimiterTx(redis_client)
+    policy_resolver = PolicyResolver(get_pg_dsn())
+
+
+def _get_demo_session_id(request: Request) -> str:
+    header = request.headers.get("X-Demo-Session")
+    if not header:
+        raise HTTPException(
+            status_code=400,
+            detail="X-Demo-Session header is required in session storage mode",
+        )
+    try:
+        return get_session_store().validate_session_id(header)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _get_backend(request: Request):
+    if use_session_storage():
+        demo_session = get_session_store().get(_get_demo_session_id(request))
+        return demo_session.resolver, demo_session.limiter
+
+    _init_persistent_backend()
+    return policy_resolver, rate_limiter
 
 
 class LoginRequest(BaseModel):
@@ -55,7 +102,10 @@ class LoginRequest(BaseModel):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    payload = {"status": "ok", "storage": "session" if use_session_storage() else "postgres"}
+    if use_session_storage():
+        payload["activeSessions"] = get_session_store().active_count()
+    return payload
 
 
 @app.get("/auth/status")
@@ -72,12 +122,19 @@ def login(body: LoginRequest, request: Request):
         return {"ok": True}
 
     client_ip = request.client.host if request.client else "unknown"
-    check_login_rate_limit(redis_client, client_ip)
+    if use_session_storage():
+        check_login_rate_limit(None, client_ip)
+    else:
+        _init_persistent_backend()
+        check_login_rate_limit(redis_client, client_ip)
 
     if not passwords_match(body.password, password):
         raise HTTPException(status_code=401, detail="Invalid access password")
 
-    clear_login_attempts(redis_client, client_ip)
+    if use_session_storage():
+        clear_login_attempts(None, client_ip)
+    else:
+        clear_login_attempts(redis_client, client_ip)
 
     response = JSONResponse({"ok": True})
     response.set_cookie(
@@ -106,106 +163,14 @@ def logout():
 @app.post("/rate-limit/check", response_model=RateLimitResponse)
 def check_rate_limit(
     body: RateLimitRequest,
+    request: Request,
     _: None = Depends(require_session),
 ):
     if not body.userId or not body.modelId:
         raise HTTPException(status_code=400, detail="userId and modelId are required")
 
-    try:
-        policies = policy_resolver.resolve(body)
-    except Exception as e:
-        detail = "Policy resolve error" if is_production() else f"Policy resolve error: {e}"
-        raise HTTPException(status_code=500, detail=detail)
-
-    evaluated = []
-    for p in policies:
-        allowed, count = rate_limiter.check_and_consume(
-            key=p.key,
-            window_seconds=p.window_seconds,
-            limit=p.limit,
-        )
-        evaluated.append(
-            {
-                "policy": p,
-                "allowed": allowed,
-                "count": count,
-            }
-        )
-
-    failures = [e for e in evaluated if not e["allowed"]]
-
-    if failures:
-        failures_sorted = sorted(
-            failures,
-            key=lambda x: SCOPE_PRECEDENCE.get(x["policy"].scope, 0),
-            reverse=True,
-        )
-        f = failures_sorted[0]
-        p = f["policy"]
-        count = f["count"]
-        cause = (
-            f"{p.label} exceeded: {count}/{p.limit} in the last {p.window_seconds} seconds"
-        )
-        if not is_production():
-            cause += f" (key={p.key})"
-
-        if len(failures_sorted) > 1:
-            other = []
-            for o in failures_sorted[1:]:
-                op = o["policy"]
-                other.append(f"{op.label} ({o['count']}/{op.limit})")
-            cause += "; also violated: " + ", ".join(other)
-
-        if is_production():
-            cause = sanitize_cause(cause)
-
-        return RateLimitResponse(
-            allowed=False,
-            limit=p.limit,
-            count=count,
-            windowSeconds=p.window_seconds,
-            cause=cause,
-        )
-
-    if not evaluated:
-        raise HTTPException(status_code=500, detail="No policy resolved")
-
-    allowed_entries = [e for e in evaluated if e["allowed"]]
-    if not allowed_entries:
-        raise HTTPException(status_code=500, detail="No allowed policies after evaluation")
-
-    def _sort_key(entry):
-        left = entry["policy"].limit - entry["count"]
-        prec = SCOPE_PRECEDENCE.get(entry["policy"].scope, 0)
-        return (left, -prec)
-
-    allowed_entries.sort(key=_sort_key)
-    primary_entry = allowed_entries[0]
-    primary = primary_entry["policy"]
-    primary_count = primary_entry["count"]
-
-    fulfilled = [
-        {
-            "label": e["policy"].label,
-            "key": e["policy"].key,
-            "limit": e["policy"].limit,
-            "count": e["count"],
-            "windowSeconds": e["policy"].window_seconds,
-        }
-        for e in evaluated
-        if e["allowed"]
-    ]
-
-    if is_production():
-        fulfilled = sanitize_fulfilled(fulfilled)
-
-    return RateLimitResponse(
-        allowed=True,
-        limit=primary.limit,
-        count=primary_count,
-        windowSeconds=primary.window_seconds,
-        fulfilled=fulfilled,
-    )
+    resolver, limiter = _get_backend(request)
+    return evaluate_rate_limit(body, resolver, limiter)
 
 
 static_dir = get_static_dir()

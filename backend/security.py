@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import os
+import threading
 import time
 from typing import Optional
 
@@ -11,6 +12,8 @@ SESSION_COOKIE = "rl_session"
 SESSION_MAX_AGE_SECONDS = 86400
 LOGIN_ATTEMPT_LIMIT = 10
 LOGIN_ATTEMPT_WINDOW_SECONDS = 300
+_login_attempts: dict[str, tuple[int, float]] = {}
+_login_attempts_lock = threading.Lock()
 
 
 def is_production() -> bool:
@@ -33,18 +36,8 @@ def get_session_secret() -> str:
 
 
 def validate_production_config() -> None:
-    if not is_production():
-        return
-
-    if not get_app_access_password():
-        raise SystemExit(
-            "APP_ACCESS_PASSWORD must be set when ENV=production or deploying on Render."
-        )
-
-    if get_session_secret() == "dev-session-secret":
-        raise SystemExit(
-            "SESSION_SECRET must be set in production (Render can generate this)."
-        )
+    """Optional sanity checks for production deploy. Public demo needs no secrets."""
+    return
 
 
 def create_session_token() -> str:
@@ -94,22 +87,40 @@ def check_login_rate_limit(redis_client, client_ip: str) -> None:
     if not is_production():
         return
 
-    key = f"rl:login_attempts:{client_ip}"
-    attempts = redis_client.incr(key)
-    if attempts == 1:
-        redis_client.expire(key, LOGIN_ATTEMPT_WINDOW_SECONDS)
+    if redis_client is not None:
+        key = f"rl:login_attempts:{client_ip}"
+        attempts = redis_client.incr(key)
+        if attempts == 1:
+            redis_client.expire(key, LOGIN_ATTEMPT_WINDOW_SECONDS)
+        if int(attempts) > LOGIN_ATTEMPT_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts. Try again later.",
+            )
+        return
 
-    if int(attempts) > LOGIN_ATTEMPT_LIMIT:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many login attempts. Try again later.",
-        )
+    now = time.time()
+    with _login_attempts_lock:
+        count, window_start = _login_attempts.get(client_ip, (0, now))
+        if now - window_start > LOGIN_ATTEMPT_WINDOW_SECONDS:
+            count, window_start = 0, now
+        count += 1
+        _login_attempts[client_ip] = (count, window_start)
+        if count > LOGIN_ATTEMPT_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many login attempts. Try again later.",
+            )
 
 
 def clear_login_attempts(redis_client, client_ip: str) -> None:
     if not is_production():
         return
-    redis_client.delete(f"rl:login_attempts:{client_ip}")
+    if redis_client is not None:
+        redis_client.delete(f"rl:login_attempts:{client_ip}")
+        return
+    with _login_attempts_lock:
+        _login_attempts.pop(client_ip, None)
 
 
 def sanitize_cause(cause: str) -> str:

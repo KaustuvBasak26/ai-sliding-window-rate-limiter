@@ -38,6 +38,17 @@ def get_pg_dsn() -> str:
     return normalize_pg_dsn(raw)
 
 
+def use_session_storage() -> bool:
+    mode = os.getenv("STORAGE_MODE", "").lower()
+    if mode == "session":
+        return True
+    if mode in ("postgres", "persistent"):
+        return False
+    if os.getenv("RENDER", "").lower() == "true" and not os.getenv("DATABASE_URL"):
+        return True
+    return False
+
+
 def get_redis_url() -> str:
     return os.getenv("REDIS_URL", "redis://localhost:6379/0")
 

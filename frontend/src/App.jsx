@@ -4,6 +4,13 @@ const API_BASE =
   import.meta.env.VITE_API_URL ||
   (import.meta.env.PROD ? "" : "http://localhost:8000");
 
+function createDemoSessionId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return `demo-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function App() {
   const [userId, setUserId] = useState("ent-user-1");
   const [modelId, setModelId] = useState("gpt-4o");
@@ -17,12 +24,18 @@ function App() {
   const [authenticated, setAuthenticated] = useState(true);
   const [accessPassword, setAccessPassword] = useState("");
   const [authError, setAuthError] = useState("");
+  const [demoSessionId] = useState(createDemoSessionId);
 
+  const apiHeaders = {
+    "Content-Type": "application/json",
+    "X-Demo-Session": demoSessionId,
+  };
   useEffect(() => {
     const checkAuth = async () => {
       try {
         const res = await fetch(`${API_BASE}/auth/status`, {
           credentials: "include",
+          headers: { "X-Demo-Session": demoSessionId },
         });
         if (!res.ok) {
           return;
@@ -47,7 +60,7 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/auth/login`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders,
         credentials: "include",
         body: JSON.stringify({ password: accessPassword }),
       });
@@ -72,7 +85,7 @@ function App() {
     try {
       const res = await fetch(`${API_BASE}/rate-limit/check`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: apiHeaders,
         credentials: "include",
         body: JSON.stringify({
           userId,
@@ -278,6 +291,16 @@ function App() {
         <div style={headerStyle}>
           <h1 style={titleStyle}>🚀 Rate Limiter</h1>
           <p style={subtitleStyle}>Check request limits across policies</p>
+          <p
+            style={{
+              ...subtitleStyle,
+              fontSize: "0.85rem",
+              marginTop: "0.35rem",
+              color: "var(--gray-400)",
+            }}
+          >
+            Fresh demo session — reload the page to reset your counters
+          </p>
         </div>
 
         {/* Form */}

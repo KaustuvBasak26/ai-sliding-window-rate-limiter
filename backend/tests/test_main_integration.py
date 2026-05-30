@@ -9,10 +9,13 @@ class TestRateLimitCheckEndpoint:
     """Integration tests for /rate-limit/check endpoint."""
 
     @pytest.fixture
-    def client(self):
-        """Create test client."""
-        from main import app
-        return TestClient(app)
+    def client(self, monkeypatch):
+        monkeypatch.setenv("STORAGE_MODE", "postgres")
+        with patch("psycopg2.connect", return_value=MagicMock()):
+            from main import _init_persistent_backend, app
+
+            _init_persistent_backend()
+            return TestClient(app)
 
     def test_check_rate_limit_missing_userid(self, client):
         """Test request with missing userId."""
@@ -155,10 +158,13 @@ class TestPolicySelection:
     """Test primary policy selection logic."""
 
     @pytest.fixture
-    def client(self):
-        """Create test client."""
-        from main import app
-        return TestClient(app)
+    def client(self, monkeypatch):
+        monkeypatch.setenv("STORAGE_MODE", "postgres")
+        with patch("psycopg2.connect", return_value=MagicMock()):
+            from main import _init_persistent_backend, app
+
+            _init_persistent_backend()
+            return TestClient(app)
 
     def test_primary_policy_minimum_left_capacity(self, client):
         """Test that primary policy is selected by minimum remaining capacity."""
@@ -205,9 +211,13 @@ class TestPolicySelection:
 
 class TestAuthEndpoints:
     @pytest.fixture
-    def client(self):
-        from main import app
-        return TestClient(app)
+    def client(self, monkeypatch):
+        monkeypatch.setenv("STORAGE_MODE", "postgres")
+        with patch("psycopg2.connect", return_value=MagicMock()):
+            from main import _init_persistent_backend, app
+
+            _init_persistent_backend()
+            return TestClient(app)
 
     def test_auth_status_open_when_password_not_set(self, client, monkeypatch):
         monkeypatch.delenv("APP_ACCESS_PASSWORD", raising=False)

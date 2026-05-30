@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from config import resolve_static_file
 from security import (
+    LOGIN_ATTEMPT_LIMIT,
     check_login_rate_limit,
     create_session_token,
     passwords_match,
@@ -51,19 +52,29 @@ def test_sanitize_fulfilled_removes_internal_keys():
     assert "key" not in sanitized[0]
 
 
-def test_validate_production_config_requires_password(monkeypatch):
+def test_validate_production_config_allows_public_deploy(monkeypatch):
     monkeypatch.setenv("ENV", "production")
     monkeypatch.delenv("APP_ACCESS_PASSWORD", raising=False)
-    monkeypatch.setenv("SESSION_SECRET", "secret")
-
-    with pytest.raises(SystemExit):
-        validate_production_config()
+    monkeypatch.delenv("SESSION_SECRET", raising=False)
+    validate_production_config()
 
 
-def test_check_login_rate_limit_blocks_after_threshold(monkeypatch):
+def test_check_login_rate_limit_blocks_without_redis(monkeypatch):
+    monkeypatch.setenv("ENV", "production")
+
+    for _ in range(LOGIN_ATTEMPT_LIMIT):
+        check_login_rate_limit(None, "127.0.0.1")
+
+    with pytest.raises(HTTPException) as exc:
+        check_login_rate_limit(None, "127.0.0.1")
+
+    assert exc.value.status_code == 429
+
+
+def test_check_login_rate_limit_blocks_with_redis(monkeypatch):
     monkeypatch.setenv("ENV", "production")
     redis_client = MagicMock()
-    redis_client.incr.return_value = 11
+    redis_client.incr.return_value = LOGIN_ATTEMPT_LIMIT + 1
 
     with pytest.raises(HTTPException) as exc:
         check_login_rate_limit(redis_client, "127.0.0.1")
