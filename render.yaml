@@ -1,13 +1,23 @@
 # Render Blueprint — free tier only (single web service, no Postgres/Redis)
+#
+# Autodeploy: pushes to `deploy` branch rebuild when backend OR frontend changes.
+# rootDir is `backend` for Python commands; buildFilter adds frontend/** because
+# Render ignores file changes outside rootDir by default (monorepo behavior).
 services:
   - type: web
     name: rate-limiter
     runtime: python
     plan: free
+    branch: deploy
     rootDir: backend
-    buildCommand: pip install -r requirements.txt && cd ../frontend && npm ci && npm run build
+    autoDeployTrigger: commit
+    buildCommand: bash render-build.sh
     startCommand: bash start.sh
     healthCheckPath: /health
+    buildFilter:
+      paths:
+        - backend/**
+        - frontend/**
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.0"

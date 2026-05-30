@@ -444,11 +444,13 @@ For local full-stack development, use Docker Postgres + Redis with `STORAGE_MODE
 
 ### Option A — One-click Blueprint deploy
 
-1. Push this repository to GitHub.
+1. Push this repository to GitHub on the **`deploy`** branch (all Render config lives there; `main` does not include `render.yaml` yet).
 2. Open [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
 3. Connect the repo; Render reads `render.yaml` and creates all services.
 4. Click **Deploy Blueprint** (no password prompt).
 5. Open your service URL when the deploy finishes.
+
+**Autodeploy:** each push to `deploy` triggers a rebuild when files under `backend/` or `frontend/` change. Frontend-only UI commits were previously ignored because `rootDir: backend` — `buildFilter` in `render.yaml` fixes that.
 
 ### Option B — Manual service setup
 
@@ -461,7 +463,7 @@ If you prefer creating services individually:
 | Runtime | Python 3 |
 | Instance Type | **Free** |
 | Root Directory | `backend` |
-| Build Command | `pip install -r requirements.txt && cd ../frontend && npm install && npm run build` |
+| Build Command | `bash render-build.sh` |
 | Start Command | `bash start.sh` |
 | Health Check Path | `/health` |
 
@@ -503,6 +505,7 @@ Open the app URL and run the demo scenarios. The app is public by default.
 
 | Issue | Fix |
 |-------|-----|
+| UI changes not appearing after push | Ensure Render tracks the **`deploy`** branch; push to `deploy`, not only `main`. Sync the Blueprint after updating `render.yaml`. Frontend changes need `buildFilter.paths` (already in `render.yaml`). |
 | Redis connection error | Ensure Redis is running (`docker ps`) or `REDIS_URL` is set |
 | Postgres connection error | Check `DATABASE_URL` / `RL_PG_DSN`; on Render, SSL is enabled automatically |
 | `401 Authentication required` | Only if you set `APP_ACCESS_PASSWORD` — log in via the UI or unset it for a public demo |
