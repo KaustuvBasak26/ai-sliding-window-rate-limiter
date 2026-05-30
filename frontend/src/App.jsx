@@ -1,4 +1,8 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD ? "" : "http://localhost:8000");
 
 function App() {
   const [userId, setUserId] = useState("ent-user-1");
@@ -8,6 +12,57 @@ function App() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [authenticated, setAuthenticated] = useState(true);
+  const [accessPassword, setAccessPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/auth/status`, {
+          credentials: "include",
+        });
+        if (!res.ok) {
+          return;
+        }
+        const data = await res.json();
+        setAuthRequired(Boolean(data.protected));
+        setAuthenticated(Boolean(data.authenticated));
+      } catch {
+        // Local dev without auth endpoints still works.
+      } finally {
+        setAuthChecked(true);
+      }
+    };
+
+    checkAuth();
+  }, []);
+
+  const handleLogin = async (event) => {
+    event.preventDefault();
+    setAuthError("");
+
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ password: accessPassword }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || "Login failed");
+      }
+
+      setAuthenticated(true);
+      setAccessPassword("");
+    } catch (err) {
+      setAuthError(err.message);
+    }
+  };
 
   const handleCheck = async () => {
     setLoading(true);
@@ -15,9 +70,10 @@ function App() {
     setResult(null);
 
     try {
-      const res = await fetch("http://localhost:8000/rate-limit/check", {
+      const res = await fetch(`${API_BASE}/rate-limit/check`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           userId,
           modelId,
@@ -186,6 +242,37 @@ function App() {
 
   return (
     <div style={containerStyle}>
+      {!authChecked ? (
+        <div style={mainCardStyle}>
+          <p style={subtitleStyle}>Loading...</p>
+        </div>
+      ) : authRequired && !authenticated ? (
+        <div style={mainCardStyle}>
+          <div style={headerStyle}>
+            <h1 style={titleStyle}>Access Required</h1>
+            <p style={subtitleStyle}>Enter the deployment password to continue</p>
+          </div>
+          <form onSubmit={handleLogin}>
+            <div style={formGroupStyle}>
+              <label style={labelStyle} htmlFor="access-password">
+                Access Password
+              </label>
+              <input
+                id="access-password"
+                type="password"
+                value={accessPassword}
+                onChange={(e) => setAccessPassword(e.target.value)}
+                style={inputStyle}
+                autoComplete="current-password"
+              />
+            </div>
+            <button type="submit" style={buttonStyle}>
+              Unlock App
+            </button>
+          </form>
+          {authError && <div style={errorStyle}>⚠️ {authError}</div>}
+        </div>
+      ) : (
       <div style={mainCardStyle}>
         {/* Header */}
         <div style={headerStyle}>
@@ -423,6 +510,7 @@ function App() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

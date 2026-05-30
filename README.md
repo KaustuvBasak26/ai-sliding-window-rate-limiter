@@ -1,103 +1,138 @@
-# Rate Limiter
+# AI Sliding Window Rate Limiter
+
+A distributed **Sliding Window Log** rate limiter for AI model serving. It protects GPU capacity, enforces tenant and API-key quotas, and supports multi-scope policy precedence — backed by **FastAPI**, **Redis**, **PostgreSQL**, and a **React** demo UI.
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Prerequisites](#prerequisites)
+- [Local Development](#local-development)
+- [Environment Variables](#environment-variables)
+- [API Reference](#api-reference)
+- [Policy Model](#policy-model)
+- [Testing the Demo UI](#testing-the-demo-ui)
+- [Automated Tests](#automated-tests)
+- [Production Security (Deploy)](#production-security-deploy)
+- [Deploy to Render](#deploy-to-render)
+- [Troubleshooting](#troubleshooting)
+- [Design Documents](#design-documents)
+
+---
+
+## Overview
+
+This project implements a production-style rate limiter for AI inference platforms:
+
+- **Sliding window log** in Redis (sorted sets + `WATCH`/`MULTI`/`EXEC` for atomicity)
+- **Policy resolver** that loads limits from PostgreSQL by scope (global, tenant, API key, model tier, user+model)
+- **REST API** for checking and consuming quota
+- **React UI** to interactively test allowed/blocked flows
+
+Typical placement in an AI serving stack:
+
+```
+Client → API Gateway → Rate Limiter → Model Router → GPU Pool
+```
+
+<img width="468" height="205" alt="System context diagram" src="https://github.com/user-attachments/assets/c8342b02-4323-4b57-8ecb-62f4c38a3f5a" />
+
+---
 
 ## Architecture
-### 1.1 Purpose
-Design and implement a distributed, Sliding Window Log based rate limiter for AI model serving.
-This system prevents GPU overload, enforces fair usage, and supports tenant-based, API key-based, model-tier-based rate decisions.
-The solution includes:
-•	A standalone backend rate limiter in Python (FastAPI)
-•	A Redis-based distributed Sliding Window Log
-•	A simple React UI to demonstrate its behavior
 
-<img width="468" height="205" alt="image" src="https://github.com/user-attachments/assets/c8342b02-4323-4b57-8ecb-62f4c38a3f5a" />
+### Components
 
-- SRD (System Requirements Document): [SRD.pdf](SRD.pdf)
+| Component | Role |
+|-----------|------|
+| **FastAPI backend** | Resolves policies, evaluates Redis limits, returns allow/block decisions |
+| **PostgreSQL** | Stores tenants, users, API keys, models, tiers, and rate limit policies |
+| **Redis** | Sliding window counters (one sorted set per policy key) |
+| **React frontend** | Demo UI for submitting requests and viewing policy usage |
 
-### 2.1 Architecture Overview
-Client → API Gateway → Rate Limiter → Model Router → GPU Pool
- 
-Purpose of rate limiter in AI serving
-•	Stops abusive clients from overloading GPUs.
-•	Enforces tenant-level SLAs.
-•	Prioritizes internal / premium traffic (QoS tiers).
+### Request flow
 
-<img width="468" height="403" alt="image" src="https://github.com/user-attachments/assets/d577ff94-43a5-4254-9927-e5eebea09d07" />
+1. Client sends `userId`, `modelId`, and optional `tenantId`, `apiKey`, `modelTier`.
+2. `PolicyResolver` maps request fields to DB IDs and fetches all applicable policies.
+3. Each policy becomes a Redis key; `SlidingWindowRateLimiterTx` atomically checks and increments.
+4. If **any** applicable policy is exceeded → request is **blocked** (most specific failure shown).
+5. If all pass → request is **allowed** (primary policy = tightest remaining capacity).
 
-- HLD (High-Level Design): [HLD.pdf](HLD.pdf)
+<img width="468" height="403" alt="High-level design diagram" src="https://github.com/user-attachments/assets/d577ff94-43a5-4254-9927-e5eebea09d07" />
 
-### 3.1 Python Directory Structure
-backend/
-  main.py
-  rate_limiter.py
-  models.py
-  policy_resolver.py (optional)
-frontend/
-  src/App.jsx
+### Policy precedence
 
-<img width="468" height="149" alt="image" src="https://github.com/user-attachments/assets/293ae4dc-d003-4cc8-b3f0-835c47ea8ceb" />
+All applicable policies are enforced. On conflict, the **most specific** scope wins for the error message:
 
-- LLD (Low-Level Design): [LLD.pdf](LLD.pdf)
+```
+USER_MODEL > API_KEY > TENANT > MODEL > MODEL_TIER > GLOBAL
+```
 
-<img width="419" height="304" alt="image" src="https://github.com/user-attachments/assets/9d0dd46e-e08e-40c0-97ea-99df8ed9a7f4" />
+---
 
-### 4.1 Entities
-#### Tenant
-Represents an organization using your API.
+## Tech Stack
 
-#### UserAccount
-Represents individual users within a tenant.
+| Layer | Technology |
+|-------|------------|
+| Backend | Python 3.12, FastAPI, Uvicorn |
+| Rate limiting | Redis 7 (sorted sets) |
+| Policy store | PostgreSQL 16 |
+| Frontend | React 19, Vite 7 |
+| Tests | pytest, Vitest, React Testing Library |
 
-#### ApiKey
-Represents API keys used by external clients or services.
-Required for per API key limits.
+---
 
-#### ModelTier
-Represents model performance/price class (e.g., GPT-4, GPT-4-mini).
-Required for per model tier limits.
+## Project Structure
 
-#### Model
-Represents actual base model used in inference (e.g., gpt-4, gpt-3.5).
-RateLimitPolicy
+```
+.
+├── backend/
+│   ├── main.py                 # FastAPI app, auth, static hosting, rate-limit API
+│   ├── security.py             # Production hardening, sessions, login throttling
+│   ├── rate_limiter.py         # SlidingWindowRateLimiterTx (Redis)
+│   ├── policy_resolver.py      # Postgres-backed policy resolution
+│   ├── models.py               # Pydantic request/response models
+│   ├── config.py               # Environment variable helpers
+│   ├── start.sh                # Render/production startup (validate + migrate + uvicorn)
+│   ├── scripts/init_db.py      # Auto-applies SQL migrations on first boot
+│   ├── migrations/
+│   │   ├── 001_create_types_and_tables.sql
+│   │   └── 002_seed_demo_data.sql
+│   ├── tests/
+│   └── requirements.txt
+├── frontend/
+│   ├── src/App.jsx             # Demo UI + access gate
+│   ├── src/protectApp.js       # Production-only UI deterrents
+│   ├── public/robots.txt       # Discourage indexing of deployed demo
+│   └── vite.config.js
+├── .env.example                # Local/production env template
+├── render.yaml                 # Render Blueprint (one-click deploy)
+└── README.md
+```
 
-#### Flexible policy table supporting:
+<img width="468" height="149" alt="Low-level design diagram" src="https://github.com/user-attachments/assets/293ae4dc-d003-4cc8-b3f0-835c47ea8ceb" />
 
-•	GLOBAL rules
+---
 
-•	TENANT-level rules
-
-•	API_KEY-level rules
-
-•	MODEL-level rules
-
-•	MODEL_TIER-level rules
-
-•	USER_MODEL rules
-
-<img width="468" height="657" alt="image" src="https://github.com/user-attachments/assets/cb5a856f-ae7f-42c8-ac32-a2e5d3a39356" />
-
-- ERD (Entity Relationship Diagram): [ERD.pdf](ERD.pdf)
-
-# Rate Limiter Setup
-
-## 1. Backend (FastAPI + Redis)
 ## Prerequisites
 
-- Python 3.8+
-- Docker (for Redis and Postgres)
+- **Python 3.12+**
+- **Node.js 18+** and npm
+- **Docker** (for local Redis and PostgreSQL)
 
-## Backend Implementation
+---
 
-### Step 1: Set up Redis
+## Local Development
+
+### 1. Start Redis
 
 ```bash
 docker run -d --name redis -p 6379:6379 redis
 ```
 
-### Step 2: Postgres Setup & Database Seeding
-
-The rate limiter uses a Postgres database to store policies, tenants, users, API keys, models, and tiers.
-
-#### 2.1 Start Postgres in Docker
+### 2. Start PostgreSQL and seed data
 
 ```bash
 docker run -d \
@@ -109,343 +144,387 @@ docker run -d \
   postgres:16
 ```
 
-#### 2.2 Test connection
+Apply migrations:
 
 ```bash
-psql -h localhost -U postgres -d rate_limiter
-# Enter password: postgres
+psql -h localhost -U postgres -d rate_limiter -f backend/migrations/001_create_types_and_tables.sql
+psql -h localhost -U postgres -d rate_limiter -f backend/migrations/002_seed_demo_data.sql
 ```
 
-Once connected, type `\q` to exit.
-
-#### 2.3 Seed the database
-
-Create two migration files in a `migrations/` folder at the backend root:
-
-**migrations/001_create_types_and_tables.sql**
-
-**migrations/002_seed_demo_data.sql**
-
-Run both migrations:
-
-```bash
-psql -h localhost -U postgres -d rate_limiter -f migrations/001_create_types_and_tables.sql
-psql -h localhost -U postgres -d rate_limiter -f migrations/002_seed_demo_data.sql
-```
-
-#### 1.4 Verify seed data
-
-Connect to psql and run these queries:
-
-```bash
-psql -h localhost -U postgres -d rate_limiter
-```
+Verify seed data:
 
 ```sql
 SELECT name FROM tenant;
-SELECT external_id, tenant_id FROM user_account;
-SELECT name FROM model_tier;
-SELECT name, tier_id FROM model;
 SELECT scope, limit_value FROM rate_limit_policy;
 ```
 
-You should see:
-- **Tenants**: `enterprise_co`, `free_co`
-- **Users**: `ent-user-1`, `ent-user-2`, `free-user-1`
-- **Tiers**: `premium`, `standard`, `free`
-- **Models**: `gpt-4o` (premium), `gpt-4o-mini` (standard), `tiny-model` (free)
-- **Policies**: GLOBAL=100, TENANT=500/50, API_KEY=20, MODEL_TIER=60/30/10, USER_MODEL=10
+Expected tenants: `enterprise_co`, `free_co`. See [Policy Model](#policy-model) for full seeded limits.
 
-## Viewing seeded data (quick psql checks)
-
-After running the migrations, connect to Postgres and run these short queries to inspect the seeded rows:
-
-```bash
-psql -h localhost -U postgres -d rate_limiter
-# then in psql:
-SELECT * FROM tenant;
-SELECT * FROM model_tier;
-SELECT * FROM model;
-SELECT external_id, tenant_id FROM user_account;
-SELECT scope, window_seconds, limit_value FROM rate_limit_policy;
-```
-
-Example of expected output (trimmed) — this matches the demo seed used above:
-
-```
- rate_limiter=# SELECT * FROM tenant;
-  id |    name     |         created_at
- ----+-------------+----------------------------
-   1 | enterprise_co | 2025-12-06 09:15:22.981628
-   2 | free_co       | 2025-12-06 09:15:22.981628
-
- rate_limiter=# SELECT * FROM model_tier;
-  id |  name   |               description
- ----+---------+------------------------------------
-   1 | premium | Expensive, high-capacity models like GPT-4
-   2 | standard| Mid-tier models
-   3 | free   | Cheaper/smaller models
-
- rate_limiter=# SELECT * FROM model;
- id |    name     | tier_id
- ----+-------------+---------
-  1 | gpt-4o      |       1
-  2 | gpt-4o-mini |       2
-  3 | tiny-model  |       3
-
- rate_limiter=# SELECT scope, window_seconds, limit_value FROM rate_limit_policy;
-   scope    | window_seconds | limit_value
-------------+----------------+-------------
- GLOBAL     |           3600 |       1000000
- TENANT     |           3600 |         500
- API_KEY    |           3600 |          20
- MODEL_TIER |           3600 |        1000
- MODEL_TIER |           3600 |         100
- MODEL_TIER |           3600 |          10
- USER_MODEL |           3600 |          10
-```
-
-### Step 2: Install backend dependencies
+### 3. Run the backend
 
 ```bash
 cd backend
-python -m venv venv
-source .venv/bin/activate  # On Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-### Step 3: Run the backend server
-
-```bash
 uvicorn main:app --reload --port 8000
 ```
 
-The backend API will be available at **http://localhost:8000**.
+- API: http://localhost:8000
+- Swagger: http://localhost:8000/docs
+- Health: http://localhost:8000/health
 
-### API Documentation (Swagger)
-
-Once the backend is running, access the interactive API documentation at:
-
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Backend Features
-
-- Flask/FastAPI for REST API
-- Redis for sliding window rate limiting
-- Real-time request tracking and limiting
-- Swagger/OpenAPI documentation
-
-## Troubleshooting
-
-- **Redis connection error**: Ensure Redis container is running with `docker ps`
-- **Port already in use**: Change port with `--port 8001` flag
-- **Module not found**: Verify virtual environment is activated and packages are installed
-
-## 3. Frontend (React + Vite)
-
-### Step 1: Install dependencies
+### 4. Run the frontend
 
 ```bash
 cd frontend
 npm install
-```
-
-### Step 2: Run the frontend development server
-
-```bash
 npm run dev
 ```
 
-The frontend will be available at the URL printed by Vite (usually **http://localhost:5173**).
+Open the URL Vite prints (usually http://localhost:5173).
 
-### Frontend Features
+### 5. Optional — preview production locally
 
-- Vite for fast development and build
-- React for UI components
-- Hot module replacement for instant updates
+```bash
+cd frontend && npm install && npm run build
+cd ../backend
+export APP_ACCESS_PASSWORD=local-demo-password
+export SESSION_SECRET=local-demo-secret
+export ENV=production
+uvicorn main:app --port 8000
+```
 
-<img width="1512" height="910" alt="Screenshot 2025-12-06 at 7 47 14 PM" src="https://github.com/user-attachments/assets/70d6e972-5bb4-4f5f-909d-8bc2a9c74e40" />
+Open http://localhost:8000 (UI + API same origin, password gate enabled).
 
-## Policies included (seeded)
+Copy `.env.example` to `.env` for local overrides if needed.
 
-The example migration seeds a set of policies to demonstrate precedence and collisions. These are present in `migrations/002_seed_demo_data.sql` and in the DB after seeding.
+---
 
-- GLOBAL
-  - scope: GLOBAL
-  - window: 3600s
-  - limit_value: 1_000_000 (demo-high default)
-  - Purpose: fallback global cap (effectively not restrictive in demo)
+## Environment Variables
 
-- TENANT
-  - scope: TENANT
-  - example: enterprise_co → 500 / hour
-  - example: free_co → 50 / hour
-  - Purpose: tenant-wide quota; overrides generic global behavior for tenants.
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Render | local DSN below | PostgreSQL connection URL (`postgresql://...`) |
+| `RL_PG_DSN` | No | see below | Alternative psycopg2-style DSN for local dev |
+| `REDIS_URL` | No | `redis://localhost:6379/0` | Redis connection URL |
+| `CORS_ORIGINS` | No | `http://localhost:5173,...` | Comma-separated allowed frontend origins (local dev only) |
+| `APP_ACCESS_PASSWORD` | Production deploy | unset | Gates the deployed app behind a password screen |
+| `SESSION_SECRET` | Production deploy | auto on Render | Signs the httpOnly session cookie |
+| `ENV` | No | unset locally | Set to `production` on Render to enable hardening |
+| `VITE_API_URL` | Local frontend only | `http://localhost:8000` | Not needed in production (same-origin) |
 
-- API_KEY
-  - scope: API_KEY
-  - example: api key assigned to free_co → 20 / hour
-  - Purpose: per-client key limits (useful for throttling single API consumers).
+Local defaults (no env vars needed):
 
-- MODEL_TIER
-  - scope: MODEL_TIER
-  - premium → 1000 / hour
-  - standard → 100 / hour
-  - free → 10 / hour
-  - Purpose: tier-based protection (e.g., premium models may be throttled to protect capacity).
+```
+RL_PG_DSN=dbname=rate_limiter user=postgres password=postgres host=localhost port=5432
+REDIS_URL=redis://localhost:6379/0
+```
 
-- USER_MODEL
-  - scope: USER_MODEL
-  - example: ent-user-2 + gpt-4o → 10 / hour (very strict for testing)
-  - Purpose: specific user+model overrides (most specific — highest precedence).
+---
 
-Notes on precedence
-- The resolver orders policies by specificity (USER_MODEL > API_KEY > TENANT > MODEL > MODEL_TIER > GLOBAL).
-- All applicable policies are enforced: a request must satisfy every applicable policy key. If any applicable policy is violated the request is blocked and the most specific failing policy is shown as the primary cause.
+## API Reference
 
-## How to test from the frontend (step-by-step)
-1. Start services (Redis + Postgres), seed the DB, and run backend & frontend as described above.
+### `GET /health`
 
-2. Open the frontend (default: http://localhost:5173). Example default form values in the demo UI:
-   - Tenant ID: enterprise_co
-   - User ID: ent-user-1
-   - Model ID: gpt-4o
-   - Model Tier: Premium
-   
-<img width="382" height="861" alt="Screenshot 2025-12-06 at 8 12 23 PM" src="https://github.com/user-attachments/assets/a7c5c206-5695-4b36-8fcb-545fb051d469" />
+Returns `{"status": "ok"}`. Public; used by Render health checks.
 
-<img width="381" height="849" alt="Screenshot 2025-12-06 at 8 13 10 PM" src="https://github.com/user-attachments/assets/75bf60bf-34f8-48f6-a4db-f24258958e50" />
+### `GET /auth/status`
 
-<img width="382" height="859" alt="Screenshot 2025-12-06 at 8 13 34 PM" src="https://github.com/user-attachments/assets/15af74a5-134a-4a5c-8cf7-a2cb1384fe2b" />
+Returns whether the deployment requires a password and whether the current browser session is authenticated.
 
-<img width="385" height="715" alt="Screenshot 2025-12-06 at 8 13 52 PM" src="https://github.com/user-attachments/assets/d176d975-8964-48ea-bfbd-75cfd2880d4a" />
+### `POST /auth/login`
 
-<img width="380" height="849" alt="Screenshot 2025-12-06 at 8 14 16 PM" src="https://github.com/user-attachments/assets/29461e11-ecb8-4dad-ab33-1591d880bc36" />
+Body: `{"password":"..."}`. Sets an httpOnly session cookie on success. Rate-limited in production (10 attempts per 5 minutes per IP).
 
-<img width="381" height="856" alt="Screenshot 2025-12-06 at 8 14 48 PM" src="https://github.com/user-attachments/assets/9ce6179d-6163-45e1-8b04-a85dd9fde0b7" />
+### `POST /auth/logout`
 
-<img width="380" height="856" alt="Screenshot 2025-12-06 at 8 15 12 PM" src="https://github.com/user-attachments/assets/b67db562-619f-445e-b313-370c473debfc" />
+Clears the session cookie.
 
-<img width="388" height="725" alt="Screenshot 2025-12-06 at 8 15 44 PM" src="https://github.com/user-attachments/assets/0aa8fc00-f4bc-4ad7-afec-73ff807ee340" />
+### `POST /rate-limit/check`
 
-<img width="393" height="860" alt="Screenshot 2025-12-06 at 8 16 05 PM" src="https://github.com/user-attachments/assets/40fb4418-c876-4d50-9dbb-82833a3b6565" />
+**Request body:**
 
-3. Test scenarios and expected UI:
+```json
+{
+  "userId": "ent-user-1",
+  "modelId": "gpt-4o",
+  "tenantId": "enterprise_co",
+  "modelTier": "premium",
+  "apiKey": null
+}
+```
 
-- Scenario A — Typical allowed request (enterprise_co, ent-user-1, gpt-4o, premium)
-  - Why: tenant (500/hr) and tier (1000/hr) and user default all permit this single request.
-  - Action: Click "Check Rate Limit" once.
-  - Expected frontend:
-    - Status: "✅ Request Allowed"
-    - Primary Limit Usage: shows count/limit (e.g., 1 / 500 if the tenant policy is primary) and a colored progress bar.
-    - Fulfilled policies list: shows entries for the matched policies (labels, counts, windows). Each entry lists label, count/limit and window minutes.
+**Allowed response:**
 
-- Scenario B — Hitting a stricter tier/user limit (ent-user-2 on gpt-4o)
-  - Why: ent-user-2 has a USER_MODEL policy set to 10/hr (very strict). If you send >10 requests within the hour you will hit that policy.
-  - Action: Rapidly click the "Check Rate Limit" button > 10 times (or send 11 quick requests).
-  - Expected frontend once exceeded:
-    - Status: "🚫 Request Blocked"
-    - Reason: e.g. "USER_MODEL exceeded: 11/10 in the last 3600 seconds (key=rl:user:...)" (or similar human label from resolver)
-    - The fulfilled list will not appear when blocked; instead the cause is shown in the reason box.
+```json
+{
+  "allowed": true,
+  "limit": 500,
+  "count": 1,
+  "windowSeconds": 3600,
+  "fulfilled": [
+    {
+      "label": "TENANT",
+      "key": "rl:tenant:1",
+      "limit": 500,
+      "count": 1,
+      "windowSeconds": 3600
+    }
+  ]
+}
+```
 
-- Scenario C — API key / free tenant limits (simulate free_co / free model)
-  - Set Tenant ID to `free_co`, choose a free model (tiny-model) or use the API key from the seed.
-  - Because free tier limits are low (10/hr or API_KEY 20/hr), a few rapid clicks will show the "Blocked" state.
-  - Expected frontend:
-    - Blocked message with cause referencing `MODEL_TIER` or `API_KEY` (whichever policy was first to fail).
-    - Fulfilled list absent.
+**Blocked response:**
 
-4. Inspect policy precedence and multiple failures
-  - If multiple policies are violated simultaneously, the UI will show the primary cause (most specific) and the backend cause string will append "also violated: ..." with the other violations summarized.
-  - Example UI cause: "USER_MODEL exceeded: 11/10 ...; also violated: MODEL_TIER (11/100)"
+```json
+{
+  "allowed": false,
+  "limit": 10,
+  "count": 11,
+  "windowSeconds": 3600,
+  "cause": "USER_MODEL exceeded: 11/10 in the last 3600 seconds (key=rl:user:...)"
+}
+```
 
-5. API testing via curl (optional)
-  - Allowed example:
-    curl -X POST http://localhost:8000/rate-limit/check -H "Content-Type: application/json" \
-      -d '{"userId":"ent-user-1","modelId":"gpt-4o","tenantId":"enterprise_co","modelTier":"premium"}'
-  - Blocked example (after exceeding): same curl after you have sent enough requests to violate a policy; response JSON will contain allowed=false and a human-readable cause.
+**Example curl:**
 
-6. What to inspect in logs / debugs
-  - Backend logs print policy evaluations (key, label, limit, count) — use them to confirm which Redis key hit the limit.
-  - Use psql queries (see verification section) to check the exact policy rows and values if behavior appears inconsistent.
+```bash
+curl -X POST http://localhost:8000/rate-limit/check \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"ent-user-1","modelId":"gpt-4o","tenantId":"enterprise_co","modelTier":"premium"}'
+```
 
-## Automated Testing
+---
 
-### Unit & Integration Tests (pytest)
+## Policy Model
 
-The backend includes comprehensive unit and integration tests using pytest.
+### Entities
 
-#### Running tests
+| Entity | Description |
+|--------|-------------|
+| **Tenant** | Organization (e.g. `enterprise_co`) |
+| **UserAccount** | User within a tenant (`external_id`) |
+| **ApiKey** | Per-client key limits |
+| **ModelTier** | `premium`, `standard`, `free` |
+| **Model** | Inference model (e.g. `gpt-4o`) |
+| **RateLimitPolicy** | Scoped limit rules |
+
+<img width="468" height="657" alt="Entity relationship diagram" src="https://github.com/user-attachments/assets/cb5a856f-ae7f-42c8-ac32-a2e5d3a39356" />
+
+### Seeded demo policies
+
+| Scope | Example | Limit (per hour) |
+|-------|---------|------------------|
+| GLOBAL | fallback | 1,000,000 |
+| TENANT | `enterprise_co` | 500 |
+| TENANT | `free_co` | 50 |
+| API_KEY | free tenant key | 20 |
+| MODEL_TIER | premium / standard / free | 1000 / 100 / 10 |
+| USER_MODEL | `ent-user-2` + `gpt-4o` | 10 |
+
+---
+
+## Testing the Demo UI
+
+<img width="1512" height="910" alt="Demo UI screenshot" src="https://github.com/user-attachments/assets/70d6e972-5bb4-4f5f-909d-8bc2a9c74e40" />
+
+### Scenario A — Allowed request
+
+- Tenant: `enterprise_co`, User: `ent-user-1`, Model: `gpt-4o`, Tier: `premium`
+- Click **Check Rate Limit** once
+- Expect: ✅ Request Allowed, progress bar, satisfied policies list
+
+### Scenario B — User+model limit
+
+- User: `ent-user-2`, Model: `gpt-4o` (USER_MODEL limit = 10/hr)
+- Click rapidly more than 10 times
+- Expect: 🚫 Request Blocked with `USER_MODEL exceeded` cause
+
+### Scenario C — Free tier limits
+
+- Tenant: `free_co`, Model: `tiny-model`, Tier: `free`
+- A few rapid clicks should trigger `MODEL_TIER` or `API_KEY` blocks
+
+---
+
+## Automated Tests
+
+### Backend (pytest)
 
 ```bash
 cd backend
+pip install -r requirements.txt pytest
 pytest
-```
-
-Run with coverage:
-
-```bash
 pytest --cov=. --cov-report=html
-```
-
-Run specific test file:
-
-```bash
 pytest tests/test_rate_limiter.py -v
-pytest tests/test_policy_resolver.py -v
-pytest tests/test_main_integration.py -v
 ```
 
-#### Test structure
+Test files:
 
-- **tests/conftest.py** — Shared fixtures (mocked Redis, test client, sample data)
-- **tests/test_rate_limiter.py** — Unit tests for SlidingWindowRateLimiterTx (logic, error handling)
-- **tests/test_policy_resolver.py** — Unit tests for PolicyResolver (key generation, precedence)
-- **tests/test_main_integration.py** — Integration tests for FastAPI endpoints (allowed/blocked responses, multiple policies, primary selection)
+- `tests/test_rate_limiter.py` — sliding window logic
+- `tests/test_policy_resolver.py` — scope precedence and Redis keys
+- `tests/test_main_integration.py` — FastAPI endpoints (allowed/blocked responses, auth flow)
+- `tests/test_security.py` — sessions, login throttling, static path safety, production config
 
-#### Test coverage
-
-- Rate limiter: allowed requests, blocked requests, Redis errors
-- Policy resolver: scope precedence, tenant/user/model/tier lookups, Redis key generation
-- Main API: valid/invalid requests, allowed/blocked responses, fulfilled policies list, primary policy selection by minimum capacity
-
-## Frontend Testing (React Testing Library)
-
-The frontend includes comprehensive unit and integration tests using Vitest and React Testing Library.
-
-#### Running tests
+### Frontend (Vitest / Jest)
 
 ```bash
 cd frontend
 npm install
 npm test
-```
-
-Run tests with UI:
-
-```bash
-npm run test:ui
-```
-
-Run with coverage:
-
-```bash
 npm run test:coverage
 ```
 
-#### Test structure
+---
 
-- **src/test/setup.js** — Global test configuration and mocks
-- **src/test/App.test.jsx** — Unit and integration tests for App component
+## Production Security (Deploy)
 
-#### Test coverage
+Deployed builds apply several layers of hardening. **Important:** any code that runs in the browser can still be inspected by a motivated user — DevTools and the Network tab cannot be fully blocked on the web. These measures raise the bar for casual access and hide internal implementation details.
 
-- Form rendering: all input fields present with correct default values
-- Form interactions: user can update fields, submit form
-- API integration: correct endpoint called with correct payload
-- Allowed responses: success status, limit usage, fulfilled policies list
-- Blocked responses: blocked status, rejection cause display
-- Error handling: network errors, API errors, error clearing on new request
-- Multiple requests: results update correctly on sequential requests
-- Loading states: loading indicator shown/hidden appropriately
+| Protection | What it does |
+|------------|----------------|
+| **Startup validation** | Production refuses to boot without `APP_ACCESS_PASSWORD` and `SESSION_SECRET` |
+| **Single-origin app** | Frontend is served by FastAPI (not a separate static URL), so there is no public repo-style source tree |
+| **Access password** | `APP_ACCESS_PASSWORD` gates the UI; session stored in an **httpOnly** cookie with expiry (not in JS) |
+| **Login throttling** | Failed login attempts rate-limited via Redis in production |
+| **Timing-safe compare** | Password verification uses constant-time comparison |
+| **Path traversal guard** | Static file handler rejects `../` escapes |
+| **No source maps** | Production Vite build disables source maps |
+| **Minified bundles** | Hashed filenames (`assets/[hash].js`) with no readable `.jsx` source |
+| **Swagger disabled** | `/docs`, `/redoc`, and OpenAPI JSON are off in production |
+| **Sanitized API responses** | Redis keys and stack traces are stripped from production responses |
+| **Security headers** | CSP, `X-Frame-Options`, `X-Robots-Tag`, `no-store` caching, etc. |
+| **robots.txt** | `Disallow: /` to discourage search engine indexing |
+| **UI deterrents** | Right-click, view-source shortcut, and common DevTools shortcuts blocked in production builds |
+
+### Known limits (honest)
+
+| Claim | Reality |
+|-------|---------|
+| "Hide source code" | Minified JS is still downloadable; determined users can reverse it |
+| "Block Network tab" | Impossible in browsers — API calls remain observable |
+| "Block DevTools" | Client-side blocks are bypassed in seconds |
+| Password gate | Stops casual visitors; not a substitute for enterprise IAM |
+
+These controls are **defense in depth for a demo**, not DRM.
+
+### After deploying on Render
+
+1. Set **`APP_ACCESS_PASSWORD`** on the `rate-limiter` service (Render prompts for this during Blueprint sync).
+2. Share that password only with people who should use the demo.
+3. The app URL is a single service, e.g. `https://rate-limiter.onrender.com`.
+
+Local development is unchanged — no password required unless you set `APP_ACCESS_PASSWORD` locally.
+
+---
+
+## Deploy to Render
+
+This repo includes a [Render Blueprint](https://render.com/docs/blueprint-spec) (`render.yaml`) configured for the **free tier only**. All billable resources explicitly set `plan: free` — if you omit `plan`, Render defaults to paid instance types (`starter` for web/Key Value, `basic-256mb` for Postgres).
+
+| Resource | Blueprint name | Instance type |
+|----------|----------------|---------------|
+| App + API (Python) | `rate-limiter` | **Free** |
+| Key Value (Redis) | `rate-limiter-redis` | **Free** |
+| PostgreSQL | `rate-limiter-db` | **Free** |
+
+The Blueprint provisions:
+
+1. **PostgreSQL** — policy database (auto-migrated on first boot)
+2. **Redis** — sliding window counters
+3. **Web service** — builds the React UI, serves it from FastAPI, and exposes the API on the same URL
+
+### Option A — One-click Blueprint deploy
+
+1. Push this repository to GitHub.
+2. Open [Render Dashboard](https://dashboard.render.com/) → **New** → **Blueprint**.
+3. Connect the repo; Render reads `render.yaml` and creates all services.
+4. When prompted, set **`APP_ACCESS_PASSWORD`** to a strong password.
+5. Wait for the first deploy to finish (migrations run automatically).
+6. Open your service URL (e.g. `https://rate-limiter.onrender.com`) and enter the access password.
+
+### Option B — Manual service setup
+
+If you prefer creating services individually:
+
+#### Web Service (API + frontend)
+
+| Setting | Value |
+|---------|-------|
+| Runtime | Python 3 |
+| Instance Type | **Free** |
+| Root Directory | `backend` |
+| Build Command | `pip install -r requirements.txt && cd ../frontend && npm install && npm run build` |
+| Start Command | `bash start.sh` |
+| Health Check Path | `/health` |
+
+Environment variables:
+
+- `ENV=production`
+- `DATABASE_URL` — from Render Postgres (**Free** instance)
+- `REDIS_URL` — from Render Key Value (**Free** instance)
+- `APP_ACCESS_PASSWORD` — your chosen gate password
+- `SESSION_SECRET` — random string (Render can generate this)
+
+#### Render Key Value (Redis-compatible)
+
+| Setting | Value |
+|---------|-------|
+| Instance Type | **Free** |
+| Internal connections only | Yes (`ipAllowList: []` in blueprint) |
+
+#### Render Postgres
+
+| Setting | Value |
+|---------|-------|
+| Instance Type | **Free** |
+
+### Post-deploy verification
+
+```bash
+curl https://YOUR-APP.onrender.com/health
+```
+
+Open the app URL, enter your `APP_ACCESS_PASSWORD`, then run the demo scenarios. Unauthenticated API calls return `401 Authentication required`.
+
+### Render free tier notes
+
+- All services in `render.yaml` use `plan: free` where applicable; do not change to `starter`, `standard`, or `basic-*` unless you intend to pay.
+- Web services spin down after inactivity; the first request may take ~30s.
+- Free PostgreSQL **expires after 30 days** and is permanently deleted — export data or upgrade for long-lived demos.
+- Free Key Value has limited memory; suitable for this demo's sliding-window counters.
+- Redis and Postgres must both be running before the API can serve traffic.
+
+---
+
+## Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| Redis connection error | Ensure Redis is running (`docker ps`) or `REDIS_URL` is set |
+| Postgres connection error | Check `DATABASE_URL` / `RL_PG_DSN`; on Render, SSL is enabled automatically |
+| `401 Authentication required` | Log in via the app UI, or set `APP_ACCESS_PASSWORD` only on production |
+| Deploy fails immediately on boot | Set `APP_ACCESS_PASSWORD` and ensure `SESSION_SECRET` is present |
+| `429 Too many login attempts` | Wait 5 minutes or retry from a different network |
+| Port in use locally | `uvicorn main:app --port 8001` |
+| Module not found | Activate venv and `pip install -r requirements.txt` |
+
+---
+
+## Design Documents
+
+| Document | File |
+|----------|------|
+| System Requirements (SRD) | [SRD.pdf](SRD.pdf) |
+| High-Level Design (HLD) | [HLD.pdf](HLD.pdf) |
+| Low-Level Design (LLD) | [LLD.pdf](LLD.pdf) |
+| Entity Relationship (ERD) | [ERD.pdf](ERD.pdf) |
+
+<img width="419" height="304" alt="LLD detail" src="https://github.com/user-attachments/assets/9d0dd46e-e08e-40c0-97ea-99df8ed9a7f4" />
+
+---
+
+## License
+
+Demo / educational project. See repository for usage terms.

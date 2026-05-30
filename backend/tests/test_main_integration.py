@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from policy_resolver import EffectiveLimit
+from security import SESSION_COOKIE
 
 
 class TestRateLimitCheckEndpoint:
@@ -200,3 +201,72 @@ class TestPolicySelection:
             # Primary should be TENANT (minimum left=10)
             assert data["limit"] == 50
             assert data["count"] == 40
+
+
+class TestAuthEndpoints:
+    @pytest.fixture
+    def client(self):
+        from main import app
+        return TestClient(app)
+
+    def test_auth_status_open_when_password_not_set(self, client, monkeypatch):
+        monkeypatch.delenv("APP_ACCESS_PASSWORD", raising=False)
+        response = client.get("/auth/status")
+        assert response.status_code == 200
+        assert response.json() == {"protected": False, "authenticated": True}
+
+    def test_rate_limit_requires_session_when_password_set(self, client, monkeypatch):
+        monkeypatch.setenv("APP_ACCESS_PASSWORD", "secret")
+        monkeypatch.setenv("SESSION_SECRET", "secret")
+
+        response = client.post(
+            "/rate-limit/check",
+            json={
+                "userId": "test-user",
+                "modelId": "gpt-4o",
+                "tenantId": "test-tenant",
+            },
+        )
+        assert response.status_code == 401
+
+    def test_login_sets_session_cookie(self, client, monkeypatch):
+        monkeypatch.setenv("APP_ACCESS_PASSWORD", "secret")
+        monkeypatch.setenv("SESSION_SECRET", "secret")
+
+        response = client.post("/auth/login", json={"password": "secret"})
+        assert response.status_code == 200
+        assert SESSION_COOKIE in response.cookies
+
+    def test_authenticated_request_after_login(self, client, monkeypatch):
+        monkeypatch.setenv("APP_ACCESS_PASSWORD", "secret")
+        monkeypatch.setenv("SESSION_SECRET", "secret")
+
+        login = client.post("/auth/login", json={"password": "secret"})
+        cookie = login.cookies.get(SESSION_COOKIE)
+
+        with patch("main.policy_resolver.resolve") as mock_resolve, patch(
+            "main.rate_limiter.check_and_consume"
+        ) as mock_consume:
+            mock_resolve.return_value = [
+                EffectiveLimit(
+                    key="rl:test",
+                    window_seconds=3600,
+                    limit=100,
+                    label="TEST",
+                    scope="GLOBAL",
+                )
+            ]
+            mock_consume.return_value = (True, 1)
+
+            response = client.post(
+                "/rate-limit/check",
+                cookies={SESSION_COOKIE: cookie},
+                json={
+                    "userId": "test-user",
+                    "modelId": "gpt-4o",
+                    "tenantId": "test-tenant",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json()["allowed"] is True

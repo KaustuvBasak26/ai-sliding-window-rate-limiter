@@ -13,7 +13,7 @@ class RateLimitRequest(BaseModel):
 # New: per-policy result returned when request is accepted
 class PolicyResult(BaseModel):
     label: str
-    key: str
+    key: Optional[str] = None
     limit: int
     count: int
     windowSeconds: int
