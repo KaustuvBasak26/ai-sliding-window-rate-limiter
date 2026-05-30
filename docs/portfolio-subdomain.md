@@ -15,6 +15,7 @@ After pushing to `deploy`:
 
 1. Open [Render Dashboard](https://dashboard.render.com/) → service **rate-limiter** → **Settings** → **Custom Domains**.
 2. Confirm `ratelimiter.kaustuvbasak.com` appears (or click **Sync Blueprint** if it does not).
+3. **Sync Blueprint** whenever you change `render.yaml` (domains, env vars, build filter) so Render applies repo config immediately.
 3. Render shows the DNS record to add. It will look like:
 
 | Type  | Name            | Target                          |

@@ -1,8 +1,8 @@
 # Render Blueprint — free tier only (single web service, no Postgres/Redis)
 #
-# Autodeploy: pushes to `deploy` branch rebuild when backend OR frontend changes.
-# rootDir is `backend` for Python commands; buildFilter adds frontend/** because
-# Render ignores file changes outside rootDir by default (monorepo behavior).
+# Autodeploy: any change under backend/, frontend/, or deploy config triggers a rebuild.
+# rootDir is `backend` for Python build/start commands only — without buildFilter,
+# Render ignores commits that touch only frontend/ or render.yaml (monorepo behavior).
 services:
   - type: web
     name: rate-limiter
@@ -18,6 +18,15 @@ services:
       paths:
         - backend/**
         - frontend/**
+        - render.yaml
+      ignoredPaths:
+        - docs/**
+        - "**/*.pdf"
+        - README.md
+        - .env.example
+        - .gitignore
+        - frontend/coverage/**
+        - frontend/dist/**
     domains:
       - ratelimiter.kaustuvbasak.com
     envVars:

@@ -450,7 +450,7 @@ For local full-stack development, use Docker Postgres + Redis with `STORAGE_MODE
 4. Click **Deploy Blueprint** (no password prompt).
 5. Open your service URL when the deploy finishes.
 
-**Autodeploy:** each push to `deploy` triggers a rebuild when files under `backend/` or `frontend/` change. Frontend-only UI commits were previously ignored because `rootDir: backend` — `buildFilter` in `render.yaml` fixes that.
+**Autodeploy:** each push to `deploy` triggers a rebuild when files under `backend/`, `frontend/`, or `render.yaml` change. Docs/PDFs/README-only commits are ignored (`buildFilter.ignoredPaths`). After editing `render.yaml` (domains, env, build command), **Sync Blueprint** on Render so dashboard settings match the repo.
 
 ### Option B — Manual service setup
 
@@ -522,7 +522,7 @@ curl https://ratelimiter.kaustuvbasak.com/health
 
 | Issue | Fix |
 |-------|-----|
-| UI changes not appearing after push | Ensure Render tracks the **`deploy`** branch; push to `deploy`, not only `main`. Sync the Blueprint after updating `render.yaml`. Frontend changes need `buildFilter.paths` (already in `render.yaml`). |
+| UI changes not appearing after push | Ensure Render tracks the **`deploy`** branch; push to `deploy`, not only `main`. **Sync Blueprint** after `render.yaml` changes. Autodeploy watches `backend/**`, `frontend/**`, and `render.yaml`. |
 | Custom domain not working | Add CNAME `ratelimiter` → your `*.onrender.com` host; sync Blueprint; see [docs/portfolio-subdomain.md](docs/portfolio-subdomain.md) |
 | Redis connection error | Ensure Redis is running (`docker ps`) or `REDIS_URL` is set |
 | Postgres connection error | Check `DATABASE_URL` / `RL_PG_DSN`; on Render, SSL is enabled automatically |
