@@ -1,18 +1,16 @@
 # Render Blueprint — free tier only (single web service, no Postgres/Redis)
 #
-# Autodeploy: any change under backend/, frontend/, or deploy config triggers a rebuild.
-# rootDir is `backend` for Python build/start commands only — without buildFilter,
-# Render ignores commits that touch only frontend/ or render.yaml (monorepo behavior).
+# Repo root deploy: backend + frontend are built together on each push to `deploy`.
+# buildFilter limits autodeploy to app code (not docs/PDFs).
 services:
   - type: web
     name: rate-limiter
     runtime: python
     plan: free
     branch: deploy
-    rootDir: backend
     autoDeployTrigger: commit
-    buildCommand: bash render-build.sh
-    startCommand: bash start.sh
+    buildCommand: bash backend/render-build.sh
+    startCommand: bash backend/start.sh
     healthCheckPath: /health
     buildFilter:
       paths:

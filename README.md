@@ -450,7 +450,7 @@ For local full-stack development, use Docker Postgres + Redis with `STORAGE_MODE
 4. Click **Deploy Blueprint** (no password prompt).
 5. Open your service URL when the deploy finishes.
 
-**Autodeploy:** each push to `deploy` triggers a rebuild when files under `backend/`, `frontend/`, or `render.yaml` change. Docs/PDFs/README-only commits are ignored (`buildFilter.ignoredPaths`). After editing `render.yaml` (domains, env, build command), **Sync Blueprint** on Render so dashboard settings match the repo.
+**Autodeploy:** each push to `deploy` rebuilds when `backend/`, `frontend/`, or `render.yaml` change. The service uses the **repo root** (Root Directory blank on Render), not `backend/` only — both folders are built via `backend/render-build.sh`. After editing `render.yaml`, **Sync Blueprint** on Render.
 
 ### Option B — Manual service setup
 
@@ -462,9 +462,9 @@ If you prefer creating services individually:
 |---------|-------|
 | Runtime | Python 3 |
 | Instance Type | **Free** |
-| Root Directory | `backend` |
-| Build Command | `bash render-build.sh` |
-| Start Command | `bash start.sh` |
+| Root Directory | *(leave empty — repo root)* |
+| Build Command | `bash backend/render-build.sh` |
+| Start Command | `bash backend/start.sh` |
 | Health Check Path | `/health` |
 
 Environment variables:
